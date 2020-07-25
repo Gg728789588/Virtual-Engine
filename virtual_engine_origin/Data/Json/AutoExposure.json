@@ -1,0 +1,9 @@
+{
+    "filtering":"1,99",
+    "minLuminance":-9,
+    "maxLuminance":9,
+    "keyValue":0.400000005960464,
+    "speedUp":6,
+    "speedDown":6,
+    "enabled":1
+}

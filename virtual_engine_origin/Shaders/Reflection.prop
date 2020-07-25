@@ -1,0 +1,53 @@
+TextureCube<float4> _Cubemap[] : register(t0, space1);
+Texture2D<float> _CameraDepthTexture : register(t0, space2);
+Texture2D<float4> _CameraGBuffer0 : register(t1, space2);
+Texture2D<float4> _CameraGBuffer1 : register(t2, space2);
+Texture2D<float4> _CameraGBuffer2 : register(t3, space2);
+Texture2D<float4> _MainTex : register(t4, space2);
+
+cbuffer TextureIndices : register(b0)
+cbuffer Per_Camera_Buffer : register(b1)
+cbuffer ReflectionProbeData : register(b2)
+//Pass 0: reflectionProbe
+#pragma main_pass
+vertex vert
+fragment frag_rp
+cull front
+ztest always
+zwrite off
+blend alpha
+#end
+//Pass 1: add to gbuffer
+#pragma blitAdd
+vertex vert_add
+fragment frag_add
+ztest less
+zwrite off
+cull off
+blend one
+#end
+//Pass 2: skybox reflection
+#pragma skybox
+vertex vert_skybox
+fragment frag_skybox
+zwrite off
+ztest less
+cull off
+#end
+//pass 3: reflection probe with diffuse
+#pragma main_pass_gi
+vertex vert
+fragment frag_rp_gi
+cull front
+ztest always
+zwrite off
+blend alpha
+#end
+//pass 4: skybox with diffuse
+#pragma skybox_gi
+vertex vert_skybox
+fragment frag_skybox_gi
+zwrite off
+ztest less
+cull off
+#end

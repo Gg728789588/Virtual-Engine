@@ -1,0 +1,11 @@
+Texture2D<float4> _MainTex : register(t0);
+Texture2D<float4> SRV_GBufferRoughness : register(t1);
+
+#pragma blitPass
+vertex vert
+fragment frag
+ztest off
+zwrite off
+cull off
+blend alpha
+#end

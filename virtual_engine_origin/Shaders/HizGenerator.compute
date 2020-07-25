@@ -1,0 +1,85 @@
+#include "Include/Sampler.cginc"
+RWTexture2D<float> _DepthTexture[9] : register(u0, space0);
+Texture2D<float> _CameraDepthTexture : register(t0, space0);
+static const float2 _Resolution = float2(1024, 512);
+
+groupshared float mipCaches[1024];
+float GetData(uint2 index, uint groupCount)
+{
+    return mipCaches[index.x + index.y * groupCount];
+}
+void SetData(uint2 index, uint groupCount, float value)
+{
+    mipCaches[index.x + index.y * groupCount] = value;
+}
+[numthreads(32,32,1)]
+void GenerateMip(uint2 id : SV_GROUPID, uint2 groupID : SV_GROUPTHREADID)
+{
+    uint2 dispatchID = 0;
+    uint2 avaliableElement = 32;
+    bool stillEnabled = true;
+    //Init Group Array
+    dispatchID = id * avaliableElement + groupID;
+    
+
+    float data = min(min(_DepthTexture[0][dispatchID * 2], _DepthTexture[0][dispatchID * 2 + uint2(0, 1)]),
+    min(_DepthTexture[0][dispatchID * 2 + uint2(1, 0)], _DepthTexture[0][dispatchID * 2 + uint2(1, 1)]));
+    SetData(groupID, avaliableElement,data);
+    _DepthTexture[1][dispatchID] = data;
+    uint lastEle = avaliableElement;
+    avaliableElement /= 2;
+    if(any(groupID >= avaliableElement)) stillEnabled = false;
+    for(uint i = 2; i < 7; ++i)
+    {
+        GroupMemoryBarrierWithGroupSync();
+        if(stillEnabled)
+        {
+            dispatchID = id * avaliableElement + groupID;
+            data = min(min(GetData(groupID * 2, lastEle), GetData(groupID * 2 + uint2(1, 0), lastEle)),
+            min(GetData(groupID * 2 + uint2(0, 1), lastEle), GetData(groupID * 2 + uint2(1, 1), lastEle)));
+            _DepthTexture[i][dispatchID] = data;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if(stillEnabled)
+        {
+            SetData(groupID, avaliableElement.x, data);
+            lastEle = avaliableElement;
+            avaliableElement /= 2;
+            if(any(groupID >= avaliableElement)) stillEnabled = false;
+        }
+    }
+}
+
+[numthreads(8,4,1)]
+void GenerateMip1(uint2 id : SV_GROUPID, uint2 groupID : SV_GROUPTHREADID)
+{
+    uint mipLevel = 6;
+    uint2 dispatchID = 0;
+    uint2 avaliableElement = uint2(8, 4);
+    bool stillEnabled = true;
+    for(uint i = 0; i < 2; ++i)
+    {
+        if(stillEnabled){
+            dispatchID = id * avaliableElement + groupID;
+            _DepthTexture[mipLevel + 1][dispatchID] = min(min(_DepthTexture[mipLevel][dispatchID * 2], _DepthTexture[mipLevel][dispatchID * 2 + uint2(0, 1)]),  min(_DepthTexture[mipLevel][dispatchID * 2 + uint2(1, 0)], _DepthTexture[mipLevel][dispatchID * 2 + uint2(1, 1)]));
+            mipLevel++;
+            avaliableElement /= 2;
+            if(groupID.x >= avaliableElement.x || groupID.y >= avaliableElement.y) stillEnabled = false;
+        }
+        AllMemoryBarrierWithGroupSync();
+
+    }
+}
+
+[numthreads(8,8,1)]
+void UpdateDepth(uint2 id : SV_DISPATCHTHREADID)
+{
+    float2 uv = (id + 0.5) / _Resolution;
+    float2 offsetUV = 0.25 / _Resolution;
+    float4 depth = float4( _CameraDepthTexture.SampleLevel(pointClampSampler, uv + offsetUV, 0),
+    _CameraDepthTexture.SampleLevel(pointClampSampler, uv - offsetUV, 0),
+    _CameraDepthTexture.SampleLevel(pointClampSampler, uv + float2(offsetUV.x, -offsetUV.y), 0),
+    _CameraDepthTexture.SampleLevel(pointClampSampler, uv - float2(offsetUV.x, -offsetUV.y), 0));
+    depth.xy = min(depth.xy, depth.zw);
+    _DepthTexture[0][id] = min(depth.x, depth.y);
+}

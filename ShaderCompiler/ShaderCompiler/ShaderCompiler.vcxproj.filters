@@ -1,0 +1,162 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="源文件">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="头文件">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="资源文件">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="ShaderCompiler.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectCompile.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="StringUtility.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="ShaderUniforms.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="BatchCompile.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Common\BinaryAllocator.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Common\MemoryBuddyAllocator.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Common\TaskThread.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Common\MObject.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="JobSystem\JobBucket.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="JobSystem\JobNode.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="JobSystem\JobSystem.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="JobSystem\JobHandle.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Common\vengine_library.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ICompileIterator.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="DirectCompile.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="StringUtility.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="d3dx12.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ShaderUniforms.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="BatchCompile.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\BinaryAllocator.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\BitArray.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\ConcurrentStack.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\Dictionary.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\DLL.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\MemoryBuddyAllocator.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\RandomVector.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\RingQueue.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\TaskThread.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\ThreadResetEvent.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\TypeWiper.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\MObject.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="JobSystem\ConcurrentQueue.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="JobSystem\JobBucket.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="JobSystem\JobHandle.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="JobSystem\JobInclude.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="JobSystem\JobNode.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="JobSystem\JobSystem.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="JobSystem\VectorPool.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\Runnable.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\vector.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\vstring.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\ArrayList.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\HashMap.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\Memory.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\MetaLib.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Common\Pool.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

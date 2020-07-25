@@ -1,0 +1,5 @@
+DXCSM: 6_3
+DXCPath: dxc.exe
+FXCSM: 5_1
+FXCPath: fxc.exe
+Compilerusage: fxc

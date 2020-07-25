@@ -1,0 +1,25 @@
+Texture2D<float4> _MainTex : register(t0);
+
+#pragma point
+vertex vert
+fragment frag_point
+ztest off
+zwrite always
+cull off
+#end
+
+#pragma bilinear
+vertex vert
+fragment frag_bilinear
+ztest off
+zwrite always
+cull off
+#end
+
+#pragma antiColor
+vertex vert
+fragment frag_antiColor
+ztest off
+zwrite always
+cull off
+#end

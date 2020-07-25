@@ -1,0 +1,112 @@
+#include "Include/Sampler.cginc"
+#define MAXIMUM_MIP_LEVELS 3
+cbuffer CombineParams : register(b0)
+{
+    uint4 _CombineIndices;
+    uint2 _TexelSize;
+    uint _CombineResult;
+};
+
+cbuffer MipmapParams : register(b1)
+{
+    uint _TargetMipIndex;
+}
+cbuffer AllocateIndirectParams : register(b2)
+{
+    uint2 _IndirectTargetPos;
+    int _IndirectIndex;
+}
+cbuffer SetIndirectChunkParams : register(b3)
+{
+    uint2 _IndirectChunkOffset;
+    uint _IndirectChunkSize;
+    uint _IndirectChunkResult;
+}
+
+RWTexture2DArray<float4> _CombineResultTex : register(u0, space0);
+RWTexture2D<int> _IndirectTex : register(u1, space0);
+RWTexture2D<uint4> _IndirectChunkTexs : register(u0, space1);
+RWTexture2DArray<float4> _TexMipLevels[MAXIMUM_MIP_LEVELS] : register(u0, space2);
+Texture2DArray<float4> _CombineTex : register(t0, space1);
+
+float4 ReadFromTexel(uint2 id)
+{
+    uint2 border = (id >= _TexelSize);
+    id -= _TexelSize * border;
+    uint texIndex = _CombineIndices[border.y * 2 + border.x];
+    return _CombineTex[uint3(id, texIndex)];
+}
+
+[numthreads(16, 16, 1)]
+void Combine(uint2 id : SV_DISPATCHTHREADID)
+{
+    uint2 twiceID = id * 2;
+    _CombineResultTex[uint3(id, _CombineResult)] = 
+    (ReadFromTexel(twiceID) + 
+    ReadFromTexel(twiceID + uint2(0, 1)) + 
+    ReadFromTexel(twiceID + uint2(1, 0)) + 
+    ReadFromTexel(twiceID + 1)) * 0.25;
+}
+groupshared float4 mipCaches[1024];
+float4 GetData(uint2 index, uint groupCount)
+{
+    return mipCaches[index.x + index.y * groupCount];
+}
+void SetData(uint2 index, uint groupCount, float4 value)
+{
+    mipCaches[index.x + index.y * groupCount] = value;
+}
+[numthreads(32,32,1)]
+void GenerateMip(uint2 id : SV_GROUPID, uint2 groupID : SV_GROUPTHREADID)
+{
+    uint2 dispatchID = 0;
+    uint2 avaliable = 32;
+    bool stillEnabled = true;
+    dispatchID = id * avaliable + groupID;
+    SetData(groupID, avaliable, _TexMipLevels[0][uint3(dispatchID, _TargetMipIndex)]);
+    float4 currentValue;
+    avaliable /= 2;
+    if(any(groupID >= avaliable)) stillEnabled = false;
+    for(uint i = 1; i < MAXIMUM_MIP_LEVELS; ++i)
+    {
+        GroupMemoryBarrierWithGroupSync();
+        if(stillEnabled){
+            dispatchID = id * avaliable + groupID;
+            currentValue = GetData(groupID * 2, avaliable * 2) + 
+            GetData(groupID * 2 + uint2(1, 0), avaliable * 2) + 
+            GetData(groupID * 2 + uint2(0, 1), avaliable * 2) + 
+            GetData(groupID * 2 + uint2(1, 1), avaliable * 2);
+            currentValue *= 0.25;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if(stillEnabled)
+        {
+            SetData(groupID, avaliable, currentValue);
+            _TexMipLevels[i][uint3(dispatchID, _TargetMipIndex)] = currentValue;
+            avaliable /= 2;
+            if(any(groupID >= avaliable)) stillEnabled = false;
+        }
+    }
+}
+
+[numthreads(1,1,1)]
+void SetIndirectMap()
+{
+    _IndirectTex[_IndirectTargetPos] = _IndirectIndex;
+}
+
+[numthreads(8,8,1)]
+void SetIndirectChunkMap(uint2 id : SV_DISPATCHTHREADID)
+{
+    if(any(id >= _IndirectChunkSize)) return;
+    float scale = 1.0 / _IndirectChunkSize;
+    float2 offset = ((float2)id) / _IndirectChunkSize;
+    _IndirectChunkTexs[_IndirectChunkOffset + id] = uint4(float3(offset, scale) * 65535, _IndirectChunkResult);
+}
+
+[numthreads(8,8,1)]
+void ClearIndirectBuffer(uint2 id : SV_DISPATCHTHREADID)
+{
+    _IndirectTex[id] = -32767;
+    
+}

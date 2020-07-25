@@ -1,0 +1,6 @@
+StructuredBuffer<uint> _HistogramBuffer : register(t0, space0);
+Texture2D<float> _Source : register(t1, space0);
+RWTexture2D<float> _Destination[2] : register(u0, space0);
+cbuffer Params : register(b0)
+
+#pragma MAIN

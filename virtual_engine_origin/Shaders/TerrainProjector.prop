@@ -1,0 +1,15 @@
+StructuredBuffer<int3> _DescriptorIndexBuffer : register(t0, space0);
+Texture2D<float4> _MainTex[100] : register(t0, space1);
+Texture2D<uint4> _IndexMap[100] : register(t0, space2);
+Texture2D<float2> _RGTex[100] : register(t0, space3);
+
+cbuffer Params : register(b0)
+
+#pragma projectPass
+vertex vert
+fragment frag
+ztest always
+cull off
+zwrite off
+conservative off
+#end

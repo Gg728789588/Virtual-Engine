@@ -1,0 +1,5 @@
+cbuffer Params : register(b0)
+Texture2D<uint2> _FeedBackTexture : register(t0, space0);
+RWStructuredBuffer<uint> _FeedBackBuffer : register(u0, space0);
+
+#pragma SetKernel

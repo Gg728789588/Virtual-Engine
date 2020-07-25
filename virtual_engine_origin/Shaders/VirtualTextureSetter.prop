@@ -1,0 +1,16 @@
+cbuffer CombineParams : register(b0)
+cbuffer MipmapParams : register(b1)
+cbuffer AllocateIndirectParams : register(b2)
+cbuffer SetIndirectChunkParams : register(b3)
+
+RWTexture2DArray<float4> _CombineResultTex : register(u0, space0);
+RWTexture2D<int> _IndirectTex : register(u1, space0);
+RWTexture2D<uint4> _IndirectChunkTexs : register(u0, space1);
+RWTexture2DArray<float4> _TexMipLevels[3] : register(u0, space2);
+Texture2DArray<float4> _CombineTex : register(t0, space1);
+
+#pragma Combine
+#pragma GenerateMip
+#pragma SetIndirectMap
+#pragma SetIndirectChunkMap
+#pragma ClearIndirectBuffer

@@ -1,0 +1,208 @@
+#include "Include/Sampler.cginc"
+#include "Include/Plane.cginc"
+#include "Include/StdLib.cginc"
+#include "Include/Decal.cginc"
+
+StructuredBuffer<Decal> _AllDecals : register(t0, space0);
+Texture2D<float> _CameraDepthTexture : register(t0, space1);
+RWTexture2D<float2> _DepthBuffer : register(u0, space1);
+RWTexture3D<int> _DecalTile : register(u1, space1);
+
+cbuffer Params : register(b0)
+{
+    float4 _CameraForward;
+    float4 _FrustumCorners[4];
+    uint2 _Resolution;
+    uint2 _TileSize;
+    uint _DecalCount;
+	uint _SRV_DecalCullResult;
+}
+cbuffer Per_Camera_Buffer : register(b1)
+{
+    float4x4 _WorldToCamera;
+    float4x4 _InverseWorldToCamera;
+    float4x4 _Proj;
+    float4x4 _InvProj;
+    float4x4 _VP;
+    float4x4 _InvVP;
+    float4x4 _NonJitterVP;
+    float4x4 _NonJitterInverseVP;
+    float4x4 _LastVP;
+    float4x4 _InverseLastVP;
+	float4x4 _FlipProj;
+	float4x4 _FlipInvProj;
+	float4x4 _FlipVP;
+	float4x4 _FlipInvVP;
+	float4x4 _FlipNonJitterVP;
+	float4x4 _FlipNonJitterInverseVP;
+	float4x4 _FlipLastVP;
+	float4x4 _FlipInverseLastVP;
+	float4 _ZBufferParams;
+	float4 _RandomSeed;
+    float3 worldSpaceCameraPos;
+    float _NearZ;
+    float _FarZ;
+};
+
+inline float2 LinearEyeDepth_float2( float2 z )
+{
+    return 1.0 / (_ZBufferParams.z * z + _ZBufferParams.w);
+}
+groupshared float2 insideLayer[64];
+float2 GetData(uint2 index, uint groupCount)
+{
+    return insideLayer[index.y * groupCount + index.x];
+}
+void SetData(uint2 index, uint groupCount, float2 value)
+{
+    insideLayer[index.y * groupCount + index.x] = value;
+}
+[numthreads(8, 8, 1)]
+void GetDepthMipMap(uint2 groupID : SV_GROUPID, uint2 groupThreadID : SV_GROUPTHREADID, uint2 dispatchID : SV_DISPATCHTHREADID)
+{
+    float4 depth = float4(
+        _CameraDepthTexture.SampleLevel(pointClampSampler, (dispatchID * 2 + 0.5) / _Resolution, 0),
+        _CameraDepthTexture.SampleLevel(pointClampSampler, (dispatchID * 2 + float2(1.5, 0.5)) / _Resolution, 0),
+        _CameraDepthTexture.SampleLevel(pointClampSampler, (dispatchID * 2 + float2(0.5, 1.5)) / _Resolution, 0),
+        _CameraDepthTexture.SampleLevel(pointClampSampler, (dispatchID * 2 + 1.5) / _Resolution, 0));
+    float2 minDepth = min(depth.xy, depth.zw);
+    minDepth.x = min(minDepth.x, minDepth.y);
+    float2 maxDepth = max(depth.xy, depth.zw);
+    maxDepth.x = max(maxDepth.x, maxDepth.y);
+    uint groupCount = 8;
+    SetData(groupThreadID, groupCount, float2(minDepth.x, maxDepth.x));
+    groupCount /= 2;
+    GroupMemoryBarrierWithGroupSync();
+    bool stillEnabled = !any(groupThreadID >= groupCount);
+    for(uint i = 0; i < 3; ++i)
+    {
+        if(stillEnabled)
+        {
+            float2 minMaxDepth[4] = {
+                GetData(groupThreadID * 2, groupCount * 2),
+                GetData(groupThreadID * 2 + uint2(1, 0), groupCount * 2),
+                GetData(groupThreadID * 2 + uint2(0, 1), groupCount * 2),
+                GetData(groupThreadID * 2 + 1, groupCount * 2)
+            };
+            minDepth.x = min(min(minMaxDepth[0].x, minMaxDepth[1].x), min(minMaxDepth[2].x, minMaxDepth[3].x));
+            maxDepth.x = max(max(minMaxDepth[0].y, minMaxDepth[1].y), max(minMaxDepth[2].y, minMaxDepth[3].y));
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if(stillEnabled)
+        {
+            SetData(groupThreadID, groupCount, float2(minDepth.x, maxDepth.x));
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if(stillEnabled)
+        {
+            groupCount /= 2;
+            if(any(groupThreadID >= groupCount)) stillEnabled = false;
+        }
+    }
+
+    if(all(groupThreadID == 0))
+    {
+        _DepthBuffer[groupID] = insideLayer[0];
+    }
+}
+
+void GetMinMaxFrustum(float4 uv, float2 minMaxDepth, out float3 minValue, out float3 maxValue)
+{
+	uv = uv * 2 - 1;
+	float4 worldPos = mul(_InvVP, float4(uv.xy, minMaxDepth.x, 1));
+	worldPos /= worldPos.w;
+	minValue = worldPos;
+	maxValue = worldPos;
+
+	worldPos = mul(_InvVP, float4(uv.xy, minMaxDepth.y, 1));
+	worldPos /= worldPos.w;
+	minValue = min(minValue, worldPos);
+	maxValue = max(maxValue, worldPos);
+
+	worldPos = mul(_InvVP, float4(uv.zw, minMaxDepth.x, 1));
+	worldPos /= worldPos.w;
+	minValue = min(minValue, worldPos);
+	maxValue = max(maxValue, worldPos);
+
+	worldPos = mul(_InvVP, float4(uv.zw, minMaxDepth.y, 1));
+	worldPos /= worldPos.w;
+	minValue = min(minValue, worldPos);
+	maxValue = max(maxValue, worldPos);
+
+	worldPos = mul(_InvVP, float4(uv.xw, minMaxDepth.x, 1));
+	worldPos /= worldPos.w;
+	minValue = min(minValue, worldPos);
+	maxValue = max(maxValue, worldPos);
+
+	worldPos = mul(_InvVP, float4(uv.xw, minMaxDepth.y, 1));
+	worldPos /= worldPos.w;
+	minValue = min(minValue, worldPos);
+	maxValue = max(maxValue, worldPos);
+
+	worldPos = mul(_InvVP, float4(uv.zy, minMaxDepth.x, 1));
+	worldPos /= worldPos.w;
+	minValue = min(minValue, worldPos);
+	maxValue = max(maxValue, worldPos);
+
+	worldPos = mul(_InvVP, float4(uv.zy, minMaxDepth.y, 1));
+	worldPos /= worldPos.w;
+	minValue = min(minValue, worldPos);
+	maxValue = max(maxValue, worldPos);
+}
+
+float BoxIntersectDecal(float3x4 localToWorldMat, float4 planes[6], float3 minValue, float3 maxValue, float3 decalMin, float3 decalMax)
+{
+	float3 position = float3(localToWorldMat._m03, localToWorldMat._m13, localToWorldMat._m23);
+	float3 minLargerThanMax = decalMin > maxValue;
+    float3 maxLessThanMin = decalMax < minValue;
+	if((dot(minLargerThanMax, 1) + dot(maxLessThanMin, 1)) > 0.5) return 0;
+    float result = 1;
+    for(uint i = 0; i < 6; ++i)
+    {
+        float4 plane = planes[i];
+		float3 absNormal = abs(mul(plane.xyz,(float3x3)localToWorldMat));
+        result *= ((dot(position, plane.xyz) - dot(absNormal, 0.5)) < -plane.w);
+    }
+    return result;
+}
+
+[numthreads(8, 8, 1)]
+void DecalCull(uint2 id : SV_DISPATCHTHREADID)
+{
+	bool2 border = id >= _TileSize;
+	uint i;
+	if(border.x || border.y) return;
+	float2 leftDownUV = (id / float2(_TileSize.xy));
+	float2 rightUpUV = ((id + 1) / float2(_TileSize.xy));
+	float4 tilePlanes[6];
+	const float nearZ = 1;
+	float3 minValue, maxValue;
+	tilePlanes[2] = GetPlane(lerp(_FrustumCorners[0].xyz, _FrustumCorners[2].xyz, rightUpUV.y).xyz, lerp(_FrustumCorners[1].xyz, _FrustumCorners[3].xyz, rightUpUV.y).xyz, worldSpaceCameraPos);                  //TOP
+	tilePlanes[3] = GetPlane(lerp(_FrustumCorners[1].xyz, _FrustumCorners[3].xyz, leftDownUV.y).xyz, lerp(_FrustumCorners[0].xyz, _FrustumCorners[2].xyz, leftDownUV.y).xyz,  worldSpaceCameraPos);                  //DOWN
+	tilePlanes[4] = GetPlane(lerp(_FrustumCorners[0].xyz, _FrustumCorners[1].xyz, leftDownUV.x).xyz,  lerp(_FrustumCorners[2].xyz, _FrustumCorners[3].xyz, leftDownUV.x).xyz,  worldSpaceCameraPos);        //LEFT
+	tilePlanes[5] = GetPlane(lerp(_FrustumCorners[2].xyz, _FrustumCorners[3].xyz, rightUpUV.x).xyz,  lerp(_FrustumCorners[0].xyz, _FrustumCorners[1].xyz, rightUpUV.x).xyz, worldSpaceCameraPos);            //RIGHT
+	float2 minMax = _DepthBuffer[uint2(id.x, _TileSize.y - id.y - 1)].yx;
+	GetMinMaxFrustum(float4(leftDownUV, rightUpUV), minMax, minValue, maxValue);
+	float2 eyeDepthBounding =  LinearEyeDepth_float2(minMax);
+	tilePlanes[0] = GetPlane(-_CameraForward, worldSpaceCameraPos + _CameraForward * eyeDepthBounding.x);
+	tilePlanes[1] = GetPlane(_CameraForward, worldSpaceCameraPos + _CameraForward * eyeDepthBounding.y);
+	uint lightCount = 1;
+	[loop]
+	for (i = 0; i < _DecalCount; ++i) {
+		Decal dec = _AllDecals[i];
+		if (BoxIntersectDecal(dec.localToWorldMat,tilePlanes, minValue, maxValue, dec.minPosition, dec.maxPosition) > 0.5) 
+		{
+			_DecalTile[uint3(id,lightCount)] = i;
+			lightCount++;
+		}
+	}
+	_DecalTile[uint3(id, 0)] = lightCount;
+}
+
+[numthreads(8, 8, 1)]
+void ClearDecal(uint2 id : SV_DISPATCHTHREADID)
+{
+	bool2 border = id >= _TileSize;
+	if(border.x || border.y) return;
+	_DecalTile[uint3(id, 0)] = 1;
+}

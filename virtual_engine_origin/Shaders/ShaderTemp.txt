@@ -1,0 +1,4 @@
+shader Default.hlsl Default.prop
+shader TemporalAA.hlsl TemporalAA.prop
+compute Froxel.compute Froxel.prop
+compute LightCull.compute LightCull.propn

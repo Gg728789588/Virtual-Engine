@@ -1,0 +1,2 @@
+RWTexture2D<float> _DepthTexture[7] : register(u0, space0);
+#pragma GenerateMip

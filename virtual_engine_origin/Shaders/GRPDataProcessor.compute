@@ -1,0 +1,60 @@
+struct ObjectCullData
+{
+	float4x4 lastObjectToWorld;		//64
+	float4x4 localToWorld;			//64
+	float4 boundingCenter;			//16
+	float4 boundingExtent;			//16
+	int2 id;						//8
+	uint maskID;					//4
+	int lightmapID;					//4
+	uint _align[20];
+};
+
+cbuffer MoveTheWorldParams : register(b0)
+{
+    float3 _MoveDirection;
+    uint _MoveCount;
+};
+cbuffer CopyObjectParams : register(b1)
+{
+    uint _TargetIndex;
+};
+cbuffer CopyInsideParams : register(b2)
+{
+    uint _From;
+    uint _To;
+}
+
+RWStructuredBuffer<uint> _CopyInsideBuffer : register(u0, space0);
+RWStructuredBuffer<ObjectCullData> _ObjCullDataBuffer : register(u1, space0);
+StructuredBuffer<ObjectCullData> _CullData : register(t0, space0);
+
+[numthreads(64, 1, 1)]
+void MoveTheWorld(uint id : SV_DISPATCHTHREADID)
+{
+    if(id >= _MoveCount) return;
+    ObjectCullData cullData = _ObjCullDataBuffer[id];
+    cullData.localToWorld[0][3] += _MoveDirection.x;
+    cullData.localToWorld[1][3] += _MoveDirection.y;
+    cullData.localToWorld[2][3] += _MoveDirection.z;
+
+    cullData.lastObjectToWorld[0][3]  += _MoveDirection.x;
+    cullData.lastObjectToWorld[1][3] += _MoveDirection.y;
+    cullData.lastObjectToWorld[2][3] += _MoveDirection.z;
+    _ObjCullDataBuffer[id] = cullData;
+}
+
+[numthreads(1, 1, 1)]
+void CopyObjectBuffer()
+{
+    float4x4 lastMat = _ObjCullDataBuffer[_TargetIndex].localToWorld;
+    ObjectCullData cullData = _CullData[0];
+    cullData.lastObjectToWorld = lastMat;
+    _ObjCullDataBuffer[_TargetIndex] = cullData;
+}
+
+[numthreads(64, 1, 1)]
+void CopyInside(uint id : SV_DISPATCHTHREADID)
+{
+    _CopyInsideBuffer[_To + id] = _CopyInsideBuffer[_From + id];
+}

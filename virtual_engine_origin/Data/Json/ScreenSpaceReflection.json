@@ -1,0 +1,12 @@
+{
+    "enabled" : 1,
+    "NumRays" : 4,
+    "NumSteps" : 8,
+    "BRDFBias" : 0.7,
+    "Fadeness" : 0.1,
+    "RoughnessDiscard" : 0.5,
+    "NumSpatial" : 1,
+    "SpatialRadius" : 2,
+    "TemporalScale" : 1.25,
+    "TemporalWeight" : 0.97
+}

@@ -1,0 +1,9 @@
+{
+    "Bloom" : "Json/Bloom.json",
+    "AutoExposure" : "Json/AutoExposure.json",
+    "ChromaticAberration" : "Json/ChromaticAberration.json",
+    "ColorGrading" : "Json/ColorGrading.json",
+    "LensDistortion" : "Json/LensDistortion.json",
+    "MotionBlur" : "Json/MotionBlur.json",
+    "SSR" : "Json/ScreenSpaceReflection.json"
+}

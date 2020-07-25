@@ -1,0 +1,11 @@
+cbuffer MoveTheWorldParams : register(b0)
+cbuffer CopyObjectParams : register(b1)
+cbuffer CopyInsideParams : register(b2)
+
+RWStructuredBuffer<uint> _CopyInsideBuffer : register(u0, space0);
+RWStructuredBuffer<ObjectCullData> _ObjCullDataBuffer : register(u1, space0);
+StructuredBuffer<ObjectCullData> _CullData : register(t0, space0);
+
+#pragma MoveTheWorld
+#pragma CopyObjectBuffer
+#pragma CopyInside
