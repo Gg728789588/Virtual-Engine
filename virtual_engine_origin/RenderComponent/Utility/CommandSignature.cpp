@@ -36,7 +36,7 @@ CommandSignature::CommandSignature(ID3D12Device* device, SignatureType sigType, 
 		desc.NodeMask = 0;
 		desc.NumArgumentDescs = 1;
 		desc.pArgumentDescs = &indDesc;
-		ThrowIfFailed(device->CreateCommandSignature(&desc, drawShader->GetSignature(), IID_PPV_ARGS(&mCommandSignature)));
+		ThrowIfFailed(device->CreateCommandSignature(&desc, nullptr, IID_PPV_ARGS(&mCommandSignature)));
 	}
 	break;
 	case SignatureType::DispatchComputeIndirect:

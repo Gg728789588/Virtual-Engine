@@ -33,6 +33,7 @@
     <ClCompile Include="Common\MathHelper.cpp" />
     <ClCompile Include="Common\MObject.cpp" />
     <ClCompile Include="Common\vengine_library.cpp" />
+    <ClCompile Include="CubeRender\CubeDrawer.cpp" />
     <ClCompile Include="JobSystem\JobBucket.cpp" />
     <ClCompile Include="JobSystem\JobNode.cpp" />
     <ClCompile Include="JobSystem\JobSystem.cpp" />

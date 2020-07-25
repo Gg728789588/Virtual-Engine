@@ -18,6 +18,7 @@ class Camera;
 class Light;
 class JobHandle;
 class Skybox;
+class CubeDrawer;
 
 //Only For Test!
 class World final
@@ -28,6 +29,7 @@ private:
 	static World* current;
 	std::mutex mtx;
 	RandomVector<ObjectPtr<Transform>> allTransformsPtr;
+	ObjectPtr<CubeDrawer> cubeDrawer;
 	vengine::vector<ObjectPtr<Camera>> allCameras;
 public:
 
@@ -38,6 +40,9 @@ public:
 	vengine::vector<ObjectPtr<Camera>>& GetCameras()
 	{
 		return allCameras;
+	}
+	CubeDrawer* GetCubeDrawer() const noexcept {
+		return cubeDrawer;
 	}
 	~World();
 	void DestroyAllCameras();

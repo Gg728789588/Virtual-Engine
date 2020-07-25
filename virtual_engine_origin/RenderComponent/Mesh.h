@@ -78,6 +78,18 @@ public:
 		bool uv2,
 		bool uv3,
 		bool bone);
+	static void LoadMeshFromFile(
+		ObjectPtr<Mesh>& mesh,
+		const vengine::string& str, 
+		ID3D12Device* device,
+		bool normals,
+		bool tangents,
+		bool colors,
+		bool uv,
+		bool uv1,
+		bool uv2,
+		bool uv3,
+		bool bone);
 	static void LoadMeshFromFiles(const vengine::vector<vengine::string>& str, ID3D12Device* device,
 		bool normals,
 		bool tangents,

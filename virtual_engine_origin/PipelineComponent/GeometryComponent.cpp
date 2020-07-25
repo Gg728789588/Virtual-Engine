@@ -12,6 +12,7 @@
 #include "PrepareComponent.h"
 #include "CameraData/CameraTransformData.h"
 #include "../Common/Camera.h"
+#include "../CubeRender/CubeDrawer.h"
 
 //#include "BaseColorComponent.h"
 uint _DefaultMaterials;
@@ -128,7 +129,6 @@ public:
 
 		auto commandList = this->commandList->GetCmdList();
 		auto world = World::GetInstance();
-		UploadBuffer* allDecals = nullptr;
 
 		TextureIndices* indices = (TextureIndices*)camData->texIndicesBuffer.GetMappedDataPtr(0);
 		//Set
@@ -153,8 +153,8 @@ public:
 				return nullptr;	//Get Error if there is no light coponent in pipeline
 			});
 		const DescriptorHeap* worldHeap = Graphics::GetGlobalDescHeap();
-
-		const Shader* gbufferShader = nullptr;//world->GetGRPRenderManager()->GetShader();
+		CubeDrawer* cubeDrawer = world->GetCubeDrawer();
+		const Shader* gbufferShader = cubeDrawer->GetShader();
 
 		auto setGBufferShaderFunc = [&]()->void
 		{
@@ -168,14 +168,11 @@ public:
 			gbufferShader->SetStructuredBufferByAddress(commandList, GeometryComponent::_LightIndexBuffer, lightComp_GBufferGlobal->lightIndexBuffer->GetAddress(0, 0));
 			gbufferShader->SetResource(commandList, GeometryComponent::LightCullCBuffer, &lightCameraData->lightCBuffer, frameIndex);
 			gbufferShader->SetResource(commandList, GeometryComponent::TextureIndices, &camData->texIndicesBuffer, 0);
-			gbufferShader->SetResource(commandList, GeometryComponent::_AllDecal, allDecals, 0);
 			gbufferShader->SetResource(commandList, GeometryComponent::_IntegerTex3D, worldHeap, 0);
 			auto cb = resource->cameraCBs[cam->GetInstanceID()];
 			gbufferShader->SetResource(commandList, ShaderID::GetPerCameraBufferID(),
 				cb.buffer, cb.element);
 		};
-
-		//setGBufferShaderFunc();
 		barrierBuffer->ExecuteCommand(commandList);
 
 		const RenderTexture* rts[6] =
@@ -198,6 +195,8 @@ public:
 			rts,
 			rtCount,
 			depthTex);
+		setGBufferShaderFunc();
+		cubeDrawer->DrawGeometry(pack);
 #pragma endregion
 
 	}

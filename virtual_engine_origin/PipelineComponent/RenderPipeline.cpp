@@ -71,8 +71,8 @@ RenderPipeline::RenderPipeline(ID3D12Device* device, ID3D12GraphicsCommandList* 
 	current = this;
 	//Init All Events Here
 	Init<
-		//Empty
 		PrepareComponent,
+
 		//Compute Queues
 		LightingComponent,
 		VolumetricComponent,

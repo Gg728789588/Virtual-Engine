@@ -3,30 +3,26 @@ RWTexture2D<float> _DepthTexture[9] : register(u0, space0);
 Texture2D<float> _CameraDepthTexture : register(t0, space0);
 static const float2 _Resolution = float2(1024, 512);
 
-groupshared float mipCaches[1024];
-float GetData(uint2 index, uint groupCount)
+groupshared float mipCaches[32][32];
+float GetData(uint2 index)
 {
-    return mipCaches[index.x + index.y * groupCount];
+    return mipCaches[index.x][index.y];
 }
-void SetData(uint2 index, uint groupCount, float value)
+void SetData(uint2 index, float value)
 {
-    mipCaches[index.x + index.y * groupCount] = value;
+    mipCaches[index.x][index.y] = value;
 }
 [numthreads(32,32,1)]
-void GenerateMip(uint2 id : SV_GROUPID, uint2 groupID : SV_GROUPTHREADID)
+void GenerateMip(uint2 id : SV_GROUPID, uint2 dispatchID : SV_DISPATCHTHREADID, uint2 groupID : SV_GROUPTHREADID)
 {
-    uint2 dispatchID = 0;
     uint2 avaliableElement = 32;
     bool stillEnabled = true;
-    //Init Group Array
-    dispatchID = id * avaliableElement + groupID;
     
 
     float data = min(min(_DepthTexture[0][dispatchID * 2], _DepthTexture[0][dispatchID * 2 + uint2(0, 1)]),
     min(_DepthTexture[0][dispatchID * 2 + uint2(1, 0)], _DepthTexture[0][dispatchID * 2 + uint2(1, 1)]));
-    SetData(groupID, avaliableElement,data);
+    SetData(groupID,data);
     _DepthTexture[1][dispatchID] = data;
-    uint lastEle = avaliableElement;
     avaliableElement /= 2;
     if(any(groupID >= avaliableElement)) stillEnabled = false;
     for(uint i = 2; i < 7; ++i)
@@ -35,38 +31,48 @@ void GenerateMip(uint2 id : SV_GROUPID, uint2 groupID : SV_GROUPTHREADID)
         if(stillEnabled)
         {
             dispatchID = id * avaliableElement + groupID;
-            data = min(min(GetData(groupID * 2, lastEle), GetData(groupID * 2 + uint2(1, 0), lastEle)),
-            min(GetData(groupID * 2 + uint2(0, 1), lastEle), GetData(groupID * 2 + uint2(1, 1), lastEle)));
+            data = min(min(GetData(groupID * 2), GetData(groupID * 2 + uint2(1, 0))),
+            min(GetData(groupID * 2 + uint2(0, 1)), GetData(groupID * 2 + uint2(1, 1))));
             _DepthTexture[i][dispatchID] = data;
         }
         GroupMemoryBarrierWithGroupSync();
         if(stillEnabled)
         {
-            SetData(groupID, avaliableElement.x, data);
-            lastEle = avaliableElement;
+            SetData(groupID, data);
             avaliableElement /= 2;
             if(any(groupID >= avaliableElement)) stillEnabled = false;
         }
     }
 }
 
-[numthreads(8,4,1)]
-void GenerateMip1(uint2 id : SV_GROUPID, uint2 groupID : SV_GROUPTHREADID)
+[numthreads(16, 8, 1)]
+void GenerateMip1(uint2 id : SV_GROUPID, uint2 dispatchID : SV_DISPATCHTHREADID, uint2 groupID : SV_GROUPTHREADID)
 {
     uint mipLevel = 6;
-    uint2 dispatchID = 0;
-    uint2 avaliableElement = uint2(8, 4);
-    bool stillEnabled = true;
-    for(uint i = 0; i < 2; ++i)
+    
+    uint2 avaliableElement = uint2(16,8);
+    avaliableElement /= 2;
+    bool stillEnabled = !any(groupID >= avaliableElement);
+    mipCaches[groupID.x][groupID.y] = _DepthTexture[mipLevel][dispatchID];
+    //TODO
+    //Use Group Shared
+    float data = 0;
+    for(uint i = 1; i < 3; ++i)
     {
-        if(stillEnabled){
+        GroupMemoryBarrierWithGroupSync();
+        if(stillEnabled)
+        {
             dispatchID = id * avaliableElement + groupID;
-            _DepthTexture[mipLevel + 1][dispatchID] = min(min(_DepthTexture[mipLevel][dispatchID * 2], _DepthTexture[mipLevel][dispatchID * 2 + uint2(0, 1)]),  min(_DepthTexture[mipLevel][dispatchID * 2 + uint2(1, 0)], _DepthTexture[mipLevel][dispatchID * 2 + uint2(1, 1)]));
-            mipLevel++;
-            avaliableElement /= 2;
-            if(groupID.x >= avaliableElement.x || groupID.y >= avaliableElement.y) stillEnabled = false;
+            data = min(min(GetData(groupID * 2), GetData(groupID * 2 + uint2(1, 0))),
+            min(GetData(groupID * 2 + uint2(0, 1)), GetData(groupID * 2 + uint2(1, 1))));
+            _DepthTexture[mipLevel + i][dispatchID] = data;
         }
-        AllMemoryBarrierWithGroupSync();
+        GroupMemoryBarrierWithGroupSync();
+        if(stillEnabled){
+            SetData(groupID, data);
+            avaliableElement /= 2;
+            if(any(groupID >= avaliableElement)) stillEnabled = false;
+        }
 
     }
 }

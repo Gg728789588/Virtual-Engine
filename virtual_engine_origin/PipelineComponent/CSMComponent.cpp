@@ -16,6 +16,7 @@
 #include "../Singleton/PSOContainer.h"
 #include "CameraData/LightCBuffer.h"
 #include "../Common/Camera.h"
+#include "../CubeRender/CubeDrawer.h"
 
 namespace CSM
 {
@@ -129,16 +130,34 @@ void GetCascadeShadowmapMatrices(
 		};
 	}
 }
+
+class CSMFrameData : public IPipelineResource
+{
+public:
+	ConstBufferElement cullDataEle[DirectionalLight::CascadeLevel];
+	CSMFrameData(ID3D12Device* device)
+	{
+		World::GetInstance()->GetCubeDrawer()->GetCullConstBuffers(device, cullDataEle, DirectionalLight::CascadeLevel);
+	}
+	~CSMFrameData()
+	{
+		if (World::GetInstance())
+			World::GetInstance()->GetCubeDrawer()->ReturnCullConstBuffers(cullDataEle, DirectionalLight::CascadeLevel);
+	}
+};
 class CSMLastDirectLightPosition : public IPipelineResource
 {
 public:
 	UploadBuffer csmParamBuffer;
 	Vector4 sunPositions[DirectionalLight::CascadeLevel];
+	
 	CSMLastDirectLightPosition(ID3D12Device* device) :
 		csmParamBuffer(device, DirectionalLight::CascadeLevel * 3, true, sizeof(ShadowmapDrawParam))
 	{
+		
 		memset(sunPositions, 0, sizeof(Vector3) * DirectionalLight::CascadeLevel);
 	}
+
 };
 class CSMRunnable
 {
@@ -170,6 +189,10 @@ public:
 			CSMLastDirectLightPosition* lastLightData = (CSMLastDirectLightPosition*)cam->GetResource(selfPtr, [&]()->CSMLastDirectLightPosition*
 				{
 					return new CSMLastDirectLightPosition(device);
+				});
+			CSMFrameData* frameData = (CSMFrameData*)res->GetPerCameraResource(selfPtr, cam, [&]()->CSMFrameData*
+				{
+					return new CSMFrameData(device);
 				});
 			uint shadowReses[DirectionalLight::CascadeLevel] =
 			{
@@ -254,7 +277,7 @@ public:
 
 				ShadowmapDrawParam* drawParams = (ShadowmapDrawParam*)lastLightData->csmParamBuffer.GetMappedDataPtr(i + DirectionalLight::CascadeLevel * frameIndex);
 				drawParams->_ShadowmapVP = m.vpMatrix;
-				cb._ShadowMatrix[i] = drawParams->_ShadowmapVP;
+				cb._ShadowMatrix[i] = m.vpMatrix;
 
 				tCmd->GetBarrierBuffer()->ExecuteCommand(commandList);
 				CSM::container->SetRenderTarget(commandList, {}, shadowmap);
@@ -263,6 +286,16 @@ public:
 				auto v = i + DirectionalLight::CascadeLevel * frameIndex;
 				//TODO
 				//Draw Heres
+				auto cubeDrawer = world->GetCubeDrawer();
+				Shader const* cubeShader = cubeDrawer->GetShader();
+				cubeDrawer->ExecuteCull(package, frameData->cullDataEle[i], cam, frustumPlanes, frustumMinPoint, frustumMaxPoint);
+				cubeShader->BindRootSignature(commandList);
+				cubeShader->SetResource(
+					commandList,
+					CSM::ProjectionShadowParams,
+					&lastLightData->csmParamBuffer,
+					i + DirectionalLight::CascadeLevel * frameIndex);
+				cubeDrawer->DrawDirectionalLightShadow(package);
 			}
 			for (uint i = 0; i < DirectionalLight::CascadeLevel; ++i)
 			{

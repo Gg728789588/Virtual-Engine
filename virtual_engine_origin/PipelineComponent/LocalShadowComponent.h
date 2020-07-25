@@ -41,7 +41,9 @@ public:
 private:
 	ArrayList<TemporalResourceCommand> tempResources;
 	LightingComponent* lightingComp;
+
 public:
+	StackObject< CBufferPool> localLightShadowmapData;
 	StackObject<RenderTexture> cubemapDepth;
 	StackObject<PSOContainer> psoContainer;
 	vengine::vector<ShadowCommand> shadowCommands;

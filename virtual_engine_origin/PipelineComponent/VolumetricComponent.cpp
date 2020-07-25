@@ -37,7 +37,7 @@ namespace VolumetricGlobal
 	float brighterWeight = 0.85f;
 	const uint marchStep = 64;
 	float availableDistance = 32;
-	float fogDensity = 0;
+	float fogDensity = 0.01;
 }
 #define _VolumeTex _VolumeTex_ID_VolumeComponent
 std::unique_ptr<RenderTexture> VolumetricComponent::volumeRT;

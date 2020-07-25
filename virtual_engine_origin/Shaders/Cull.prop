@@ -1,14 +1,8 @@
 cbuffer CullBuffer : register(b0)
-StructuredBuffer<MultiDrawCommand> _InputBuffer : register(t0);
-StructuredBuffer<ObjectData> _InputDataBuffer : register(t1);
-Texture2D<float> _HizDepthTex : register(t2);
+
+StructuredBuffer<ObjectData> _InputDataBuffer : register(t0);
 RWStructuredBuffer<MultiDrawCommand> _OutputBuffer : register(u0);
-RWStructuredBuffer<uint> _CountBuffer : register(u1);
-RWStructuredBuffer<uint> _InputIndexBuffer : register(u2);
-RWStructuredBuffer<uint> _DispatchIndirectBuffer : register(u3);
+RWStructuredBuffer<ObjectData> _OutputDataBuffer : register(u1);
+
 #pragma CSMain
 #pragma Clear
-#pragma OccFirstCheck
-#pragma ClearOcc
-#pragma PrepareIndirectDispatch
-#pragma OccReCheck

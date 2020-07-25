@@ -570,6 +570,48 @@ Mesh* Mesh::LoadMeshFromFile(const vengine::string& str, ID3D12Device* device,
 
 }
 
+void Mesh::LoadMeshFromFile(
+	ObjectPtr<Mesh>& mesh,
+	const vengine::string& str,
+	ID3D12Device* device,
+	bool normals,
+	bool tangents,
+	bool colors,
+	bool uv,
+	bool uv1,
+	bool uv2,
+	bool uv3,
+	bool bone)
+{
+	
+	MeshData meshData;
+	if (!DecodeMesh(str, meshData))
+	{
+		mesh = nullptr;
+		return;
+	}
+	mesh = ObjectPtr<Mesh>::NewObject(
+		meshData.vertex.size(),
+		meshData.vertex.data(),
+		normals ? (meshData.normal.data() ? meshData.normal.data() : (XMFLOAT3*)1) : nullptr,
+		tangents ? (meshData.tangent.data() ? meshData.tangent.data() : (XMFLOAT4*)1) : nullptr,
+		colors ? (meshData.color.data() ? meshData.color.data() : (XMFLOAT4*)1) : nullptr,
+		uv ? (meshData.uv.data() ? meshData.uv.data() : (XMFLOAT2*)1) : nullptr,
+		uv1 ? (meshData.uv2.data() ? meshData.uv2.data() : (XMFLOAT2*)1) : nullptr,
+		uv2 ? (meshData.uv3.data() ? meshData.uv3.data() : (XMFLOAT2*)1) : nullptr,
+		uv3 ? (meshData.uv4.data() ? meshData.uv4.data() : (XMFLOAT2*)1) : nullptr,
+		bone ? (meshData.boneIndex.data() ? meshData.boneIndex.data() : (int4*)1) : nullptr,
+		bone ? (meshData.boneWeight.data() ? meshData.boneWeight.data() : (float4*)1) : nullptr,
+		device,
+		meshData.indexFormat,
+		meshData.indexData.size() / ((meshData.indexFormat == DXGI_FORMAT_R16_UINT) ? 2 : 4),
+		meshData.indexData.data()
+	);
+	Mesh* result = mesh;
+	result->boundingCenter = meshData.boundingCenter;
+	result->boundingExtent = meshData.boundingExtent;
+}
+
 void Mesh::LoadMeshFromFiles(const vengine::vector<vengine::string>& str, ID3D12Device* device,
 	bool normals,
 	bool tangents,

@@ -1,42 +1,34 @@
 #include "Include/Sampler.cginc"
 cbuffer CullBuffer : register(b0)
 {
-    float4x4 _LastVPMatrix;
-    float4x4 _VPMatrix;
     float4 planes[6];
     //Align
-    float3 _FrustumMinPoint;
+    float4 _FrustumMinPoint;
+    float4 _FrustumMaxPoint;
     uint _Count;
-    //Align
-    float3 _FrustumMaxPoint;
-    uint _CullingMask;
 };
 struct MultiDrawCommand
 {
-    uint value[16]; //same size as CPU
+    uint IndexCountPerInstance;
+    uint InstanceCount;
+    uint StartIndexLocation;
+    int BaseVertexLocation;
+    uint StartInstanceLocation;
 };
 struct ObjectData
 {
-    float4x4 lastObjectToWorld;		//64
-	float4x4 localToWorld;			//64
-	float4 boundingCenter;			//16
-	float4 boundingExtent;			//16
-	int2 id;						//8
-	uint maskID;					//4
-	int lightmapID;					//4
-	uint _align[20];
+    float4x4 localToWorld;			//64
+    uint _align[48];    //(256 - 64) / 4
 };
-StructuredBuffer<MultiDrawCommand> _InputBuffer : register(t0);
-StructuredBuffer<ObjectData> _InputDataBuffer : register(t1);
-Texture2D<float> _HizDepthTex : register(t2);
+StructuredBuffer<ObjectData> _InputDataBuffer : register(t0);
 RWStructuredBuffer<MultiDrawCommand> _OutputBuffer : register(u0);
-RWStructuredBuffer<uint> _CountBuffer : register(u1);
-RWStructuredBuffer<uint> _InputIndexBuffer : register(u2);
-RWStructuredBuffer<uint> _DispatchIndirectBuffer : register(u3);
+RWStructuredBuffer<ObjectData> _OutputDataBuffer : register(u1);
 
 
 
-float PlaneTest(float3 localPosition, float3 extent, float4x4 localToWorld){
+float PlaneTest(float4x4 localToWorld){
+    const float3 localPosition = 0;
+    const float3 extent = 0.5;
     float3 position = mul(localToWorld, float4(localPosition, 1)).xyz;
     float3 worldMin = position;
     float3 worldMax = position;
@@ -52,7 +44,7 @@ float PlaneTest(float3 localPosition, float3 extent, float4x4 localToWorld){
         float3(-1, -1, 1),
         float3(-1, -1, -1)
     };
-   
+    
     [loop]
     for(i = 0; i < 8; ++i)
     {
@@ -74,79 +66,6 @@ float PlaneTest(float3 localPosition, float3 extent, float4x4 localToWorld){
     }
     return 1;
 }
-float OcclusionTest(ObjectData info, float4x4 vpMat)
-{
-    const float3 Extents[8] = 
-    {
-        float3(1,1,1),
-        float3(1,1,-1),
-        float3(1,-1,1),
-        float3(1,-1,-1),
-        float3(-1,1,1),
-        float3(-1,1,-1),
-        float3(-1,-1,1),
-        float3(-1,-1,-1)
-    };
-    const float maxHIZMip = 8;
-    const float2 hizLevels[9] = 
-    {
-        float2(1024, 512),
-        float2(512, 256),
-        float2(256, 128),
-        float2(128, 64),
-        float2(64, 32),
-        float2(32, 16),
-        float2(16, 8),
-        float2(8, 4),
-        float2(4, 2)
-    };
-    const float2 hizDepthSize = hizLevels[0];
-    float minZ = 0;
-    float2 maxXY = 0; float2 minXY = 1;
-    for(uint i = 0; i < 8; ++i)
-    {
-        float3 worldPos = mul(info.localToWorld, float4(info.boundingCenter + info.boundingExtent * Extents[i], 1)).xyz;
-        float4 projPos = mul(vpMat, float4(worldPos, 1));
-        projPos /= float4(projPos.w, -projPos.w, projPos.ww);
-        minXY = min(minXY, projPos.xy);
-        maxXY = max(maxXY, projPos.xy);
-        minZ = max(minZ, projPos.z);
-    }
-    float4 boxUVs = float4(minXY, maxXY);
-    boxUVs = (boxUVs * 0.5 + 0.5);
-    float2 size = (boxUVs.zw - boxUVs.xy) * hizDepthSize;
-    float mip = (log2(max(size.x, size.y)));
-    if(mip > maxHIZMip + 0.5)
-    {
-        return 1;
-    }
-    mip = ceil(mip);
-     float  level_lower = max(mip - 0.98, 0);
-        float2 scale = hizLevels[level_lower];
-        float2 a = floor(boxUVs.xy*scale);
-        float2 b = ceil(boxUVs.zw*scale);
-        float2 dims = b - a;
- 
-        // Use the lower level if we only touch <= 2 texels in both dimensions
-        if (dims.x < 2.1 && dims.y < 2.1){
-            mip = level_lower;
-        }
-    float2 pixelSize = hizLevels[mip + 0.02];
-    boxUVs = saturate(boxUVs);
-    float4 absolutePixels = boxUVs * pixelSize.xyxy;
-    absolutePixels.xy = lerp(absolutePixels.xy, absolutePixels.xy + 0.5, frac(absolutePixels.xy) > 0.999);
-    absolutePixels.zw = lerp(absolutePixels.zw, absolutePixels.zw - 0.5, frac(absolutePixels.zw) < 0.001);
-    float4 depth = float4(_HizDepthTex.Load(uint3(absolutePixels.xy, mip)),
-                         _HizDepthTex.Load(uint3(absolutePixels.zy, mip)),
-                         _HizDepthTex.Load(uint3(absolutePixels.xw, mip)),
-                         _HizDepthTex.Load(uint3(absolutePixels.zw, mip))
-    );
-    depth.xy = min(depth.xy, depth.zw);
-    depth.x = min(depth.x, depth.y);
-   /* depth.x = min(depth.x, 
-    _HizDepthTex.SampleLevel(pointClampSampler, centerProj.xy, mip));*/
-    return minZ >= depth.x;
-}
 
 [numthreads(64, 1, 1)]
 void CSMain(uint id : SV_DISPATCHTHREADID)
@@ -154,69 +73,17 @@ void CSMain(uint id : SV_DISPATCHTHREADID)
     if(id >= _Count) return;
     uint count;
     ObjectData data = _InputDataBuffer[id];
-    if(!(data.maskID & _CullingMask)) return;
-    if(PlaneTest(data.boundingCenter, data.boundingExtent, data.localToWorld) > 0.5)
+    if(PlaneTest(data.localToWorld) > 0.5)
     {
-        InterlockedAdd(_CountBuffer[0], 1, count);
-        _OutputBuffer[count] = _InputBuffer[id];
+        InterlockedAdd(_OutputBuffer[0].InstanceCount, 1, count);
+        _OutputDataBuffer[count] = data;
     }
 }
 
 [numthreads(1,1,1)]
 void Clear()
 {
-    _CountBuffer[0] = 0;
-}
-
-[numthreads(64, 1, 1)]
-void OccFirstCheck(uint id : SV_DISPATCHTHREADID)
-{
-    if(id >= _Count) return;
-    uint count;
-    ObjectData data = _InputDataBuffer[id];
-    if(!(data.maskID & _CullingMask)) return;
-    if(PlaneTest(data.boundingCenter, data.boundingExtent, data.localToWorld) > 0.5)
-    {
-        if(OcclusionTest(data, _LastVPMatrix) > 0.5)
-        {
-            InterlockedAdd(_CountBuffer[0], 1, count);
-            _OutputBuffer[count] = _InputBuffer[id];
-           
-        }
-        else
-        {
-            InterlockedAdd(_DispatchIndirectBuffer[3], 1, count);
-            _InputIndexBuffer[count] = id;
-        }
-    }
-}
-
-[numthreads(1, 1, 1)]
-void ClearOcc()
-{
-    _CountBuffer[0] = 0;
-    _DispatchIndirectBuffer[3] = 0;
-}
-
-[numthreads(1, 1, 1)]
-void PrepareIndirectDispatch()
-{
-    _DispatchIndirectBuffer[0] = (uint)((_DispatchIndirectBuffer[3] + 63) / 64);
-    _DispatchIndirectBuffer[1] = 1;
-    _DispatchIndirectBuffer[2] = 1;
-    _CountBuffer[0] = 0;
-}
-
-[numthreads(64, 1, 1)]
-void OccReCheck(uint id : SV_DISPATCHTHREADID)
-{
-    if(id >= _DispatchIndirectBuffer[3]) return;
-    uint count;
-    uint bufferID = _InputIndexBuffer[id];
-    ObjectData data = _InputDataBuffer[bufferID];
-    if(OcclusionTest(data, _VPMatrix) > 0.5)
-    {
-        InterlockedAdd(_CountBuffer[0], 1, count);
-        _OutputBuffer[count] = _InputBuffer[bufferID];
-    }
+    MultiDrawCommand clearedValue = (MultiDrawCommand)0;
+    clearedValue.IndexCountPerInstance = 36;    //Cube Should have 36 vertex
+    _OutputBuffer[0] = clearedValue;
 }

@@ -216,6 +216,7 @@ void ShaderCompiler::Init(ID3D12Device* device, JobSystem* jobSys)
 	GetAutoExposure(device, bucket);*/
 #ifdef SHADER_MULTICORE_COMPILE
 	jobSys->ExecuteBucket(bucket, 1);
+	jobSys->Wait();
 #endif
 }
 

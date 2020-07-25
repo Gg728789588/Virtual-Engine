@@ -15,12 +15,47 @@
 #include "CameraData/LightCBuffer.h"
 #include "../RenderComponent/Light.h"
 #include "../Common/RenderPackage.h"
+#include "../CubeRender/CubeDrawer.h"
 
 using namespace Math;
 ArrayList<TemporalResourceCommand>& LocalShadowComponent::SendRenderTextureRequire(const EventData& evt)
 {
 	return tempResources;
 }
+
+struct LocalLightFrameData : public IPipelineResource
+{
+	ArrayList<ConstBufferElement> tempEles;
+	ArrayList<ConstBufferElement> cullEles;
+	CBufferPool* cbPool;
+	LocalLightFrameData(CBufferPool* cbPool) : cbPool(cbPool)
+	{
+
+	}
+	ConstBufferElement GetCullDataBuffer(ID3D12Device* device)
+	{
+		auto ele = World::GetInstance()->GetCubeDrawer()->GetCullConstBuffer(device);
+		cullEles.push_back(ele);
+		return ele;
+	}
+	void Clear()
+	{
+		for (auto ite = tempEles.begin(); ite != tempEles.end(); ++ite)
+		{
+			cbPool->Return(*ite);
+		}
+		tempEles.clear();
+		if (World::GetInstance() && !cullEles.empty())
+		{
+			World::GetInstance()->GetCubeDrawer()->ReturnCullConstBuffers(cullEles.data(), cullEles.size());
+		}
+		cullEles.clear();
+	}
+	~LocalLightFrameData()
+	{
+		Clear();
+	}
+};
 
 struct LocalShadowRunnable
 {
@@ -33,6 +68,10 @@ struct LocalShadowRunnable
 	void operator()()
 	{
 		ThreadCommandFollower follower(tcmd);
+		LocalLightFrameData* frameData = (LocalLightFrameData*)res->GetPerCameraResource(selfPtr, cam, [&]()->LocalLightFrameData* {
+			return new LocalLightFrameData(selfPtr->localLightShadowmapData);
+			});
+		frameData->Clear();
 		auto commandList = tcmd->GetCmdList();
 		auto barrier = tcmd->GetBarrierBuffer();
 		ArrayList<Light*>& value = lightCompPtr->lightPtrs;
@@ -99,20 +138,22 @@ struct LocalShadowRunnable
 			{
 				return nullptr;
 			});
-		
+
 		RenderPackage pack(
 			device,
 			commandList,
 			res,
 			barrier,
 			selfPtr->psoContainer);
+		CubeDrawer* cubeDrawer = World::GetInstance()->GetCubeDrawer();
+		Shader const* cubeShader = cubeDrawer->GetShader();
 		for (auto ite = selfPtr->shadowCommands.begin(); ite != selfPtr->shadowCommands.end(); ++ite)
 		{
 			switch (ite->type)
 			{
 			case LocalShadowComponent::ShadowType::Spot:
 			{
-				
+
 				Matrix4 proj = XMMatrixPerspectiveFovLH(ite->spotLight.fov, 1, ite->spotLight.farZ, ite->spotLight.nearZ);
 				Matrix4 vp = mul(ite->spotLight.view, proj);
 				Vector4 frustumPlanes[6];
@@ -132,13 +173,21 @@ struct LocalShadowRunnable
 					&frustumMinPos,
 					&frustumMaxPos
 				);
-				
+
 				LightCommand* lightCmd = (LightCommand*)lightData->lightsInFrustum.GetMappedDataPtr(ite->lightIndex);
 				lightCmd->spotVPMatrix = vp;
-				//drawParams->_ShadowmapVP = vp;
+				ShadowmapDrawParam drawParams;
+				drawParams._ShadowmapVP = vp;
+				ConstBufferElement ele = frameData->cbPool->Get(device);
+				frameData->tempEles.push_back(ele);
+				memcpy(ele.buffer->GetMappedDataPtr(ele.element), &drawParams, sizeof(ShadowmapDrawParam));
 				barrier->ExecuteCommand(commandList);
 				ite->shadowmap->ClearRenderTarget(commandList, 0, 0);
-				//TODO Draw Here
+				selfPtr->psoContainer->SetRenderTarget(commandList, { }, ite->shadowmap);
+				cubeDrawer->ExecuteCull(pack, frameData->GetCullDataBuffer(device), cam, frustumPlanes, frustumMinPos, frustumMaxPos);
+				cubeShader->BindRootSignature(commandList);
+				cubeShader->SetResource(commandList, selfPtr->ProjectionShadowParams, ele.buffer, ele.element);
+				cubeDrawer->DrawSpotLightShadow(pack);
 			}
 			break;
 			case LocalShadowComponent::ShadowType::Cube:
@@ -162,21 +211,27 @@ struct LocalShadowRunnable
 					viewProj,
 					(Vector4**)frustumPlanes,
 					minMaxPos);
-
-				barrier->ExecuteCommand(commandList);
 				for (uint i = 0; i < 6; ++i)
 				{
-				
-					
-					/*ShadowmapDrawParam* drawParams = (ShadowmapDrawParam*)objectEle.buffer->GetMappedDataPtr(objectEle.element);
-					drawParams->_LightPos = (Vector3)ite->pointLight.position;
-					drawParams->_LightPos.w = ite->pointLight.range;
-					drawParams->_ShadowmapVP = viewProj[i];*/
+
+
+					ShadowmapDrawParam drawParams;// = (ShadowmapDrawParam*)objectEle.buffer->GetMappedDataPtr(objectEle.element);
+					drawParams._LightPos = (Vector3)ite->pointLight.position;
+					drawParams._LightPos.w = ite->pointLight.range;
+					drawParams._ShadowmapVP = viewProj[i];
+					ConstBufferElement ele = frameData->cbPool->Get(device);
+					frameData->tempEles.push_back(ele);
+					memcpy(ele.buffer->GetMappedDataPtr(ele.element), &drawParams, sizeof(ShadowmapDrawParam));
+					barrier->ExecuteCommand(commandList);
+
 					selfPtr->psoContainer->SetRenderTarget(commandList, { RenderTarget(ite->shadowmap, i, 0) }, RenderTarget(selfPtr->cubemapDepth, 0, 0));
 					ite->shadowmap->ClearRenderTarget(commandList, i, 0);
 					selfPtr->cubemapDepth->ClearRenderTarget(commandList, 0, 0);
-					//TODO
-					//Draw 
+					cubeDrawer->ExecuteCull(pack, frameData->GetCullDataBuffer(device), cam, frustumPlanes[i], minMaxPos[i].first, minMaxPos[i].second);
+					cubeShader->BindRootSignature(commandList);
+					cubeShader->SetResource(commandList, selfPtr->ProjectionShadowParams, ele.buffer, ele.element);
+					cubeDrawer->DrawPointLightShadow(pack);
+
 				}
 			}
 			break;
@@ -202,12 +257,15 @@ void LocalShadowComponent::RenderEvent(const EventData& data, ThreadCommand* com
 }
 void LocalShadowComponent::Initialize(ID3D12Device* device, ID3D12GraphicsCommandList* commandList)
 {
+	localLightShadowmapData.New(
+		sizeof(ShadowmapDrawParam), 256, true
+	);
 	ProjectionShadowParams = ShaderID::PropertyToID("ProjectionShadowParams");
 	SetCPUDepending<LightingComponent>();
 	shadowCommands.reserve(50);
 	lightingComp = RenderPipeline::GetComponent<LightingComponent>();
 	psoContainer.New();
-	
+
 	cubemapDepth.New(device,
 		1024, 1024,
 		RenderTextureFormat::GetDepthFormat(RenderTextureDepthSettings_Depth16),
@@ -216,6 +274,7 @@ void LocalShadowComponent::Initialize(ID3D12Device* device, ID3D12GraphicsComman
 }
 void LocalShadowComponent::Dispose()
 {
+	localLightShadowmapData.Delete();
 	psoContainer.Delete();
 	cubemapDepth.Delete();
 }

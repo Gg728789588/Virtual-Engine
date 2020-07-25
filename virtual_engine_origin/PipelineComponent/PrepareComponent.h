@@ -17,7 +17,7 @@ public:
 protected:
 	ArrayList<TemporalResourceCommand> useless;
 	virtual CommandListType GetCommandListType() {
-		return CommandListType_None;
+		return CommandListType_Graphics;
 	}
 	virtual ArrayList<TemporalResourceCommand>& SendRenderTextureRequire(const EventData& evt) { return useless; }
 	virtual void RenderEvent(const EventData& data, ThreadCommand* commandList);

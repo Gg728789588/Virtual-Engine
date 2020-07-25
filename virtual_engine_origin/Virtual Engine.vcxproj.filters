@@ -250,6 +250,9 @@
     <ClCompile Include="Common\vengine_library.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="CubeRender\CubeDrawer.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CJsonObject\cJSON.h">

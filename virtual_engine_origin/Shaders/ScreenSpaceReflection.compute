@@ -3,43 +3,73 @@ RWTexture2D<float> _DepthTexture[10] : register(u0, space0);
 Texture2D<float> _CameraDepthTexture : register(t0, space0);
 static const float2 _Resolution = float2(1024, 1024);
 
-
+groupshared float mipData[64][64];
 [numthreads(32,32,1)]
-void GenerateMip(uint2 id : SV_GROUPID, uint2 groupID : SV_GROUPTHREADID)
+void GenerateMip(uint2 id : SV_GROUPID, uint2 dispatchID : SV_DISPATCHTHREADID, uint2 groupID : SV_GROUPTHREADID)
 {
-    uint2 dispatchID = 0;
     uint2 avaliableElement = 32;
+    
     bool stillEnabled = true;
-    for(uint i = 0; i < 6; ++i)
+    mipData[groupID.x * 2][groupID.y * 2] = _DepthTexture[0][dispatchID * 2];
+    mipData[groupID.x * 2 + 1][groupID.y * 2 ] = _DepthTexture[0][dispatchID * 2 + uint2(1, 0)];
+    mipData[groupID.x * 2 ][groupID.y * 21] = _DepthTexture[0][dispatchID * 2 + uint2(0, 1)];
+    mipData[groupID.x * 2 + 1][groupID.y * 2 + 1] = _DepthTexture[0][dispatchID * 2 + uint2(1, 1)];
+    float data = 0;
+    for(uint i = 1; i < 7; ++i)
     {
+        GroupMemoryBarrierWithGroupSync();
         if(stillEnabled){
+            data = max(
+            max(mipData[groupID.x * 2][groupID.y * 2], 
+            mipData[groupID.x * 2 + 1][groupID.y * 2 ]),
+            max(
+            mipData[groupID.x * 2][groupID.y * 2 + 1],
+            mipData[groupID.x * 2 + 1][groupID.y * 2 + 1]
+            )
+            );
             dispatchID = id * avaliableElement + groupID;
-            _DepthTexture[i + 1][dispatchID] = max(max(_DepthTexture[i][dispatchID * 2], _DepthTexture[i][dispatchID * 2 + uint2(0, 1)]),  max(_DepthTexture[i][dispatchID * 2 + uint2(1, 0)], _DepthTexture[i][dispatchID * 2 + uint2(1, 1)]));
-            avaliableElement /= 2;
-            if(groupID.x >= avaliableElement.x || groupID.y >= avaliableElement.y) stillEnabled = false;
+            _DepthTexture[i][dispatchID] = data;
         }
-        AllMemoryBarrierWithGroupSync();
+        GroupMemoryBarrierWithGroupSync();
+        if(stillEnabled){
+            mipData[groupID.x][groupID.y] = data;
+            avaliableElement /= 2;
+            if(any(groupID >= avaliableElement)) stillEnabled = false;
+        }
 
     }
 }
 
 [numthreads(8,8,1)]
-void GenerateMip1(uint2 id : SV_GROUPID, uint2 groupID : SV_GROUPTHREADID)
+void GenerateMip1(uint2 id : SV_GROUPID, uint2 groupID : SV_GROUPTHREADID, uint2 dispatchID : SV_DISPATCHTHREADID)
 {
     uint mipLevel = 6;
-    uint2 dispatchID = 0;
-    uint2 avaliableElement = 8;
-    bool stillEnabled = true;
-    for(uint i = 0; i < 3; ++i)
+    uint2 avaliableElement = 4;
+    bool stillEnabled = !any(groupID >= avaliableElement);
+    mipData[groupID.x][groupID.y] = _DepthTexture[mipLevel][dispatchID];
+    float data = 0;
+    for(uint i = 1; i < 4; ++i)
     {
-        if(stillEnabled){
+        GroupMemoryBarrierWithGroupSync();
+        if(stillEnabled)
+        {
+            data = max(
+            max(mipData[groupID.x * 2][groupID.y * 2], 
+            mipData[groupID.x * 2 + 1][groupID.y * 2 ]),
+            max(
+            mipData[groupID.x * 2][groupID.y * 2 + 1],
+            mipData[groupID.x * 2 + 1][groupID.y * 2 + 1]
+            )
+            );
             dispatchID = id * avaliableElement + groupID;
-            _DepthTexture[mipLevel + 1][dispatchID] = max(max(_DepthTexture[mipLevel][dispatchID * 2], _DepthTexture[mipLevel][dispatchID * 2 + uint2(0, 1)]),  max(_DepthTexture[mipLevel][dispatchID * 2 + uint2(1, 0)], _DepthTexture[mipLevel][dispatchID * 2 + uint2(1, 1)]));
-            mipLevel++;
-            avaliableElement /= 2;
-            if(groupID.x >= avaliableElement.x || groupID.y >= avaliableElement.y) stillEnabled = false;
+            _DepthTexture[mipLevel + i][dispatchID] = data;
         }
-        AllMemoryBarrierWithGroupSync();
+        GroupMemoryBarrierWithGroupSync();
+        if(stillEnabled){
+            mipData[groupID.x][groupID.y] = data;
+            avaliableElement /= 2;
+            if(any(groupID >= avaliableElement)) stillEnabled = false;
+        }
 
     }
 }
@@ -70,15 +100,15 @@ cbuffer Per_Camera_Buffer : register(b0)
     float4x4 _LastVP;
     float4x4 _InverseLastVP;
     float4x4 _FlipProj;
-	float4x4 _FlipInvProj;
-	float4x4 _FlipVP;
-	float4x4 _FlipInvVP;
-	float4x4 _FlipNonJitterVP;
-	float4x4 _FlipNonJitterInverseVP;
-	float4x4 _FlipLastVP;
-	float4x4 _FlipInverseLastVP;
+    float4x4 _FlipInvProj;
+    float4x4 _FlipVP;
+    float4x4 _FlipInvVP;
+    float4x4 _FlipNonJitterVP;
+    float4x4 _FlipNonJitterInverseVP;
+    float4x4 _FlipLastVP;
+    float4x4 _FlipInverseLastVP;
     float4 _ZBufferParams;
-	float4 _RandomSeed;
+    float4 _RandomSeed;
     float3 worldSpaceCameraPos;
     float _NearZ;
     float _FarZ;
@@ -157,13 +187,13 @@ cbuffer SSR_Params : register(b1)
 void Raytracing_ScreenTrace (uint3 id : SV_DispatchThreadID)
 {
     if(any(id.xy >= _RayTraceResolution)) return;
-  //  if(id.x >= _RayTraceResolution.x || id.y >= _RayTraceResolution.y) return;
+    //  if(id.x >= _RayTraceResolution.x || id.y >= _RayTraceResolution.y) return;
     float2 UV = (id.xy + 0.5) * SSR_TraceResolution.zw;
     float2 texUV = UV.xy;
     texUV.y = 1 - texUV.y;
-	uint2 PixelPosition = uint2(UV.xy * SSR_TraceResolution.xy);
+    uint2 PixelPosition = uint2(UV.xy * SSR_TraceResolution.xy);
 
-	float SceneDepth = SRV_SceneDepth.SampleLevel(bilinearClampSampler, UV, 0).r;
+    float SceneDepth = SRV_SceneDepth.SampleLevel(bilinearClampSampler, UV, 0).r;
     if (SceneDepth <= 1e-7) {
         UAV_ReflectionUWVPDF[id.xy] = 0;
         UAV_ReflectionColorMask[id.xy] = 0;
@@ -176,120 +206,120 @@ void Raytracing_ScreenTrace (uint3 id : SV_DispatchThreadID)
         UAV_ReflectionColorMask[id.xy] = 0;
         return;
     }
-	float3 ScreenPos = GetScreenSpacePos(UV, SceneDepth);
-	float3 WorldPos = GetWorldSpacePos(ScreenPos, Matrix_InvViewProj);
-	float3 ViewPos = GetViewSpacePos(ScreenPos, Matrix_InvProj);
-	float3 ViewDir = GetViewDir(WorldPos, ViewPos);
-	float3 WorldNormal = SRV_GBufferNormal.SampleLevel(bilinearClampSampler, UV, 0).xyz * 2 - 1;
-	float3 ViewNormal = mul( (float3x3)Matrix_WorldToView, WorldNormal );
-	float3x3 TangentMatrix = GetTangentBasis(WorldNormal);
+    float3 ScreenPos = GetScreenSpacePos(UV, SceneDepth);
+    float3 WorldPos = GetWorldSpacePos(ScreenPos, Matrix_InvViewProj);
+    float3 ViewPos = GetViewSpacePos(ScreenPos, Matrix_InvProj);
+    float3 ViewDir = GetViewDir(WorldPos, ViewPos);
+    float3 WorldNormal = SRV_GBufferNormal.SampleLevel(bilinearClampSampler, UV, 0).xyz * 2 - 1;
+    float3 ViewNormal = mul( (float3x3)Matrix_WorldToView, WorldNormal );
+    float3x3 TangentMatrix = GetTangentBasis(WorldNormal);
 
-	uint FrameIDMod8 = uint(fmod(SSR_FrameIndex, 64));
-	uint2 Random = Rand3DPCG16( uint3(PixelPosition, FrameIDMod8) ).xy;
+    uint FrameIDMod8 = uint(fmod(SSR_FrameIndex, 64));
+    uint2 Random = Rand3DPCG16( uint3(PixelPosition, FrameIDMod8) ).xy;
 
     float4 Out_UVWPDF = 0;
     float4 Out_ColorMask = 0;
 
-	[loop]
-	for (uint i = 0; i < (uint)SSR_NumRays; i++) {
-		float2 Hash = Hammersley16(i, (uint)SSR_NumRays, Random);
+    [loop]
+    for (uint i = 0; i < (uint)SSR_NumRays; i++) {
+        float2 Hash = Hammersley16(i, (uint)SSR_NumRays, Random);
         Hash.y = lerp(Hash.y, 0, SSR_BRDFBias);
-		float4 LightDir_TS = ImportanceSampleGGX(Hash, Roughness);
-		float3 LightDir_WS = mul(LightDir_TS.xyz, TangentMatrix);
-		float3 LightDir_VS = TangentToWorld( LightDir_TS.xyz, float4(ViewNormal, 1) ).xyz;
-		LightDir_VS = reflect( normalize(ViewPos), LightDir_VS );
-		
-		float Level;
-		float3 HitUVz;
+        float4 LightDir_TS = ImportanceSampleGGX(Hash, Roughness);
+        float3 LightDir_WS = mul(LightDir_TS.xyz, TangentMatrix);
+        float3 LightDir_VS = TangentToWorld( LightDir_TS.xyz, float4(ViewNormal, 1) ).xyz;
+        LightDir_VS = reflect( normalize(ViewPos), LightDir_VS );
+        
+        float Level;
+        float3 HitUVz;
 
-		float3 RayStartScreen = ScreenPos;
-		float4 RayEndScreen = mul( Matrix_Proj, float4(LightDir_VS, 0) ) + float4(RayStartScreen, 1); 
-		RayEndScreen.xyz = (RayEndScreen.xyz / max(RayEndScreen.w, 1e-4));
-		float3 RayDepthScreen = 0.5 * (RayStartScreen + mul( Matrix_Proj, float4(0, 0, 1, 0) ).xyz);
-		float3 RayStepScreen = RayEndScreen.xyz - RayStartScreen;
-		RayStepScreen *= GetStepScreenFactorToClipAtScreenEdge(RayStartScreen.xy, RayStepScreen.xy);
-		float CompareTolerance = max(abs(RayStepScreen.z), (RayStartScreen.z - RayDepthScreen.z) * 2);
+        float3 RayStartScreen = ScreenPos;
+        float4 RayEndScreen = mul( Matrix_Proj, float4(LightDir_VS, 0) ) + float4(RayStartScreen, 1); 
+        RayEndScreen.xyz = (RayEndScreen.xyz / max(RayEndScreen.w, 1e-4));
+        float3 RayDepthScreen = 0.5 * (RayStartScreen + mul( Matrix_Proj, float4(0, 0, 1, 0) ).xyz);
+        float3 RayStepScreen = RayEndScreen.xyz - RayStartScreen;
+        RayStepScreen *= GetStepScreenFactorToClipAtScreenEdge(RayStartScreen.xy, RayStepScreen.xy);
+        float CompareTolerance = max(abs(RayStepScreen.z), (RayStartScreen.z - RayDepthScreen.z) * 2);
 
-		float StepOffset = InterleavedGradientNoise(PixelPosition + 0.5, FrameIDMod8);
-		StepOffset -= 0.9;
-		bool bHit = RayCast_Specular(SSR_NumSteps, 0.15, CompareTolerance, StepOffset, RayStartScreen, RayStepScreen, SRV_PyramidDepth, HitUVz, Level);
+        float StepOffset = InterleavedGradientNoise(PixelPosition + 0.5, FrameIDMod8);
+        StepOffset -= 0.9;
+        bool bHit = RayCast_Specular(SSR_NumSteps, 0.15, CompareTolerance, StepOffset, RayStartScreen, RayStepScreen, SRV_PyramidDepth, HitUVz, Level);
         Out_UVWPDF.xyz = float3(HitUVz.xy, HitUVz.z);
         Out_UVWPDF.w += LightDir_TS.w;
 
-		[branch] 
-		if(bHit) {
+        [branch] 
+        if(bHit) {
             float3 SampleColor = SRV_PyramidColor.SampleLevel(pointClampSampler, HitUVz.xy, 0).rgb;
-			SampleColor.rgb *= rcp( 1 + Luminance(SampleColor.rgb) );
-			Out_ColorMask += float4(SampleColor.rgb, GetScreenFadeBord(HitUVz.xy, SSR_Fadeness));
-		}
-	}
+            SampleColor.rgb *= rcp( 1 + Luminance(SampleColor.rgb) );
+            Out_ColorMask += float4(SampleColor.rgb, GetScreenFadeBord(HitUVz.xy, SSR_Fadeness));
+        }
+    }
 
     Out_UVWPDF.w /= SSR_NumRays;
-	Out_ColorMask /= SSR_NumRays;
+    Out_ColorMask /= SSR_NumRays;
     //Out_ColorMask.a = saturate( Out_ColorMask.a * Out_ColorMask.a );
-	Out_ColorMask.rgb *= rcp( 1 - Luminance(Out_ColorMask.rgb) );
+    Out_ColorMask.rgb *= rcp( 1 - Luminance(Out_ColorMask.rgb) );
 
     UAV_ReflectionUWVPDF[id.xy] = float4( Out_UVWPDF.xyz, max(1e-5, (Out_UVWPDF.w != 0) ? 1 / Out_UVWPDF.w : 0) );
-	UAV_ReflectionColorMask[id.xy] = Out_ColorMask;
+    UAV_ReflectionColorMask[id.xy] = Out_ColorMask;
 }
 static const float2 kStackowiakSampleSet0[56 * 4] =
 {
-	float2(-0.5, -0.5), float2(+0.5, -0.5), float2(-0.5, +0.5), float2(+0.5, +0.5),
-	float2(-1.5, +0.5), float2(-1.5, -0.5), float2(-0.5, +1.5), float2(+1.5, -0.5),
-	float2(+0.5, -1.5), float2(+2.5, -0.5), float2(+1.5, +0.5), float2(-0.5, -1.5),
-	float2(-1.5, -2.5), float2(-0.5, -2.5), float2(-1.5, -1.5), float2(-0.5, +2.5),
-	float2(-1.5, +1.5), float2(+1.5, -2.5), float2(-1.5, +2.5), float2(+1.5, +2.5),
-	float2(+0.5, -2.5), float2(-2.5, -0.5), float2(-2.5, -1.5), float2(-2.5, +0.5),
-	float2(+0.5, +1.5), float2(+0.5, +2.5), float2(-3.5, +0.5), float2(+0.5, +3.5),
-	float2(+1.5, -1.5), float2(+3.5, -0.5), float2(+2.5, +1.5), float2(+3.5, +0.5),
-	float2(+1.5, +1.5), float2(-2.5, +1.5), float2(-3.5, +2.5), float2(+3.5, +1.5),
-	float2(-3.5, -0.5), float2(-1.5, -3.5), float2(-2.5, -2.5), float2(-2.5, +2.5),
-	float2(+2.5, +0.5), float2(+2.5, +2.5), float2(+1.5, +3.5), float2(+3.5, -1.5),
-	float2(-3.5, -2.5), float2(+3.5, -2.5), float2(+2.5, -1.5), float2(+0.5, -3.5),
-	float2(-0.5, +3.5), float2(-0.5, -4.5), float2(-4.5, +0.5), float2(+4.5, +0.5),
-	float2(-4.5, -1.5), float2(-3.5, +1.5), float2(-0.5, -3.5), float2(+1.5, -3.5),
-	float2(+0.5, -4.5), float2(-1.5, +3.5), float2(+0.5, +4.5), float2(-3.5, -1.5),
-	float2(-4.5, +1.5), float2(+2.5, -4.5), float2(+2.5, -2.5), float2(-1.5, +4.5),
-	float2(-2.5, -4.5), float2(+4.5, -2.5), float2(+2.5, +3.5), float2(-3.5, +3.5),
-	float2(-2.5, +3.5), float2(+0.5, -5.5), float2(-4.5, +3.5), float2(-2.5, -3.5),
-	float2(-4.5, +2.5), float2(+3.5, +3.5), float2(+2.5, -3.5), float2(+4.5, +3.5),
-	float2(+3.5, -3.5), float2(+4.5, +2.5), float2(-5.5, +1.5), float2(-4.5, -0.5),
-	float2(+3.5, +2.5), float2(-0.5, +4.5), float2(-1.5, +5.5), float2(+1.5, +5.5),
-	float2(+4.5, -0.5), float2(+5.5, +0.5), float2(+4.5, +1.5), float2(-1.5, -4.5),
-	float2(-1.5, -5.5), float2(-4.5, -2.5), float2(-2.5, +5.5), float2(+2.5, +5.5),
-	float2(+1.5, +4.5), float2(+5.5, +1.5), float2(+1.5, -4.5), float2(-3.5, -3.5),
-	float2(+3.5, -4.5), float2(-3.5, -4.5), float2(+4.5, -1.5), float2(+4.5, -3.5),
-	float2(-3.5, -5.5), float2(-2.5, -5.5), float2(-4.5, -3.5), float2(+4.5, +4.5),
-	float2(-3.5, +4.5), float2(-2.5, +4.5), float2(-5.5, -2.5), float2(-5.5, +0.5),
-	float2(+2.5, -5.5), float2(+3.5, +4.5), float2(-0.5, -5.5), float2(-0.5, +6.5),
-	float2(+2.5, +4.5), float2(-5.5, -0.5), float2(-6.5, -1.5), float2(+1.5, -5.5),
-	float2(-6.5, -0.5), float2(+0.5, +5.5), float2(+1.5, +6.5), float2(+6.5, +1.5),
-	float2(-0.5, +5.5), float2(+6.5, -0.5), float2(-4.5, -4.5), float2(-5.5, +2.5),
-	float2(+5.5, -0.5), float2(-5.5, -1.5), float2(-6.5, +3.5), float2(-1.5, +6.5),
-	float2(-6.5, +0.5), float2(+4.5, -5.5), float2(-3.5, +6.5), float2(+6.5, -1.5),
-	float2(+0.5, -6.5), float2(-5.5, -3.5), float2(+5.5, -2.5), float2(+4.5, -4.5),
-	float2(+5.5, -1.5), float2(+3.5, -6.5), float2(+5.5, +3.5), float2(+3.5, -5.5),
-	float2(-5.5, -4.5), float2(+6.5, -3.5), float2(-0.5, -6.5), float2(+3.5, +6.5),
-	float2(-5.5, +3.5), float2(+0.5, +6.5), float2(+6.5, +0.5), float2(+6.5, -2.5),
-	float2(-6.5, -3.5), float2(-4.5, +4.5), float2(-7.5, -0.5), float2(+7.5, +0.5),
-	float2(+5.5, +2.5), float2(-0.5, -7.5), float2(+0.5, +7.5), float2(-4.5, +5.5),
-	float2(+3.5, +5.5), float2(-3.5, +5.5), float2(-4.5, -5.5), float2(+4.5, +6.5),
-	float2(+5.5, -4.5), float2(+4.5, +5.5), float2(-4.5, +6.5), float2(+6.5, +4.5),
-	float2(-7.5, +1.5), float2(-6.5, +1.5), float2(+5.5, -3.5), float2(-6.5, +2.5),
-	float2(-2.5, +6.5), float2(-1.5, -7.5), float2(+5.5, +4.5), float2(-1.5, -6.5),
-	float2(-3.5, -7.5), float2(+2.5, -7.5), float2(-7.5, +2.5), float2(-6.5, -2.5),
-	float2(-5.5, +5.5), float2(+2.5, +6.5), float2(-2.5, -6.5), float2(-7.5, +0.5),
-	float2(-0.5, +7.5), float2(+7.5, -2.5), float2(-2.5, +7.5), float2(+0.5, -7.5),
-	float2(-4.5, -7.5), float2(+7.5, +1.5), float2(+1.5, -6.5), float2(-6.5, +4.5),
-	float2(-1.5, +7.5), float2(-5.5, -5.5), float2(+6.5, +2.5), float2(-3.5, -6.5),
-	float2(+3.5, -7.5), float2(-5.5, +4.5), float2(+2.5, -6.5), float2(+1.5, -7.5),
-	float2(+6.5, +3.5), float2(+5.5, -6.5), float2(-6.5, +5.5), float2(+7.5, +4.5),
-	float2(+7.5, -1.5), float2(-7.5, -1.5), float2(+3.5, +7.5), float2(-5.5, +6.5),
-	float2(+1.5, +7.5), float2(+7.5, +3.5), float2(+7.5, -0.5), float2(-7.5, -2.5),
-	float2(+5.5, +5.5), float2(+6.5, +5.5), float2(+5.5, -5.5), float2(-2.5, -7.5),
-	float2(+2.5, +7.5), float2(-7.5, -3.5), float2(-7.5, -4.5), float2(-6.5, -4.5),
-	float2(+7.5, -3.5), float2(+5.5, +6.5), float2(-5.5, -6.5), float2(-4.5, -6.5),
-	float2(+7.5, +2.5), float2(-7.5, +3.5), float2(+4.5, -6.5), float2(+7.5, -4.5),
+    float2(-0.5, -0.5), float2(+0.5, -0.5), float2(-0.5, +0.5), float2(+0.5, +0.5),
+    float2(-1.5, +0.5), float2(-1.5, -0.5), float2(-0.5, +1.5), float2(+1.5, -0.5),
+    float2(+0.5, -1.5), float2(+2.5, -0.5), float2(+1.5, +0.5), float2(-0.5, -1.5),
+    float2(-1.5, -2.5), float2(-0.5, -2.5), float2(-1.5, -1.5), float2(-0.5, +2.5),
+    float2(-1.5, +1.5), float2(+1.5, -2.5), float2(-1.5, +2.5), float2(+1.5, +2.5),
+    float2(+0.5, -2.5), float2(-2.5, -0.5), float2(-2.5, -1.5), float2(-2.5, +0.5),
+    float2(+0.5, +1.5), float2(+0.5, +2.5), float2(-3.5, +0.5), float2(+0.5, +3.5),
+    float2(+1.5, -1.5), float2(+3.5, -0.5), float2(+2.5, +1.5), float2(+3.5, +0.5),
+    float2(+1.5, +1.5), float2(-2.5, +1.5), float2(-3.5, +2.5), float2(+3.5, +1.5),
+    float2(-3.5, -0.5), float2(-1.5, -3.5), float2(-2.5, -2.5), float2(-2.5, +2.5),
+    float2(+2.5, +0.5), float2(+2.5, +2.5), float2(+1.5, +3.5), float2(+3.5, -1.5),
+    float2(-3.5, -2.5), float2(+3.5, -2.5), float2(+2.5, -1.5), float2(+0.5, -3.5),
+    float2(-0.5, +3.5), float2(-0.5, -4.5), float2(-4.5, +0.5), float2(+4.5, +0.5),
+    float2(-4.5, -1.5), float2(-3.5, +1.5), float2(-0.5, -3.5), float2(+1.5, -3.5),
+    float2(+0.5, -4.5), float2(-1.5, +3.5), float2(+0.5, +4.5), float2(-3.5, -1.5),
+    float2(-4.5, +1.5), float2(+2.5, -4.5), float2(+2.5, -2.5), float2(-1.5, +4.5),
+    float2(-2.5, -4.5), float2(+4.5, -2.5), float2(+2.5, +3.5), float2(-3.5, +3.5),
+    float2(-2.5, +3.5), float2(+0.5, -5.5), float2(-4.5, +3.5), float2(-2.5, -3.5),
+    float2(-4.5, +2.5), float2(+3.5, +3.5), float2(+2.5, -3.5), float2(+4.5, +3.5),
+    float2(+3.5, -3.5), float2(+4.5, +2.5), float2(-5.5, +1.5), float2(-4.5, -0.5),
+    float2(+3.5, +2.5), float2(-0.5, +4.5), float2(-1.5, +5.5), float2(+1.5, +5.5),
+    float2(+4.5, -0.5), float2(+5.5, +0.5), float2(+4.5, +1.5), float2(-1.5, -4.5),
+    float2(-1.5, -5.5), float2(-4.5, -2.5), float2(-2.5, +5.5), float2(+2.5, +5.5),
+    float2(+1.5, +4.5), float2(+5.5, +1.5), float2(+1.5, -4.5), float2(-3.5, -3.5),
+    float2(+3.5, -4.5), float2(-3.5, -4.5), float2(+4.5, -1.5), float2(+4.5, -3.5),
+    float2(-3.5, -5.5), float2(-2.5, -5.5), float2(-4.5, -3.5), float2(+4.5, +4.5),
+    float2(-3.5, +4.5), float2(-2.5, +4.5), float2(-5.5, -2.5), float2(-5.5, +0.5),
+    float2(+2.5, -5.5), float2(+3.5, +4.5), float2(-0.5, -5.5), float2(-0.5, +6.5),
+    float2(+2.5, +4.5), float2(-5.5, -0.5), float2(-6.5, -1.5), float2(+1.5, -5.5),
+    float2(-6.5, -0.5), float2(+0.5, +5.5), float2(+1.5, +6.5), float2(+6.5, +1.5),
+    float2(-0.5, +5.5), float2(+6.5, -0.5), float2(-4.5, -4.5), float2(-5.5, +2.5),
+    float2(+5.5, -0.5), float2(-5.5, -1.5), float2(-6.5, +3.5), float2(-1.5, +6.5),
+    float2(-6.5, +0.5), float2(+4.5, -5.5), float2(-3.5, +6.5), float2(+6.5, -1.5),
+    float2(+0.5, -6.5), float2(-5.5, -3.5), float2(+5.5, -2.5), float2(+4.5, -4.5),
+    float2(+5.5, -1.5), float2(+3.5, -6.5), float2(+5.5, +3.5), float2(+3.5, -5.5),
+    float2(-5.5, -4.5), float2(+6.5, -3.5), float2(-0.5, -6.5), float2(+3.5, +6.5),
+    float2(-5.5, +3.5), float2(+0.5, +6.5), float2(+6.5, +0.5), float2(+6.5, -2.5),
+    float2(-6.5, -3.5), float2(-4.5, +4.5), float2(-7.5, -0.5), float2(+7.5, +0.5),
+    float2(+5.5, +2.5), float2(-0.5, -7.5), float2(+0.5, +7.5), float2(-4.5, +5.5),
+    float2(+3.5, +5.5), float2(-3.5, +5.5), float2(-4.5, -5.5), float2(+4.5, +6.5),
+    float2(+5.5, -4.5), float2(+4.5, +5.5), float2(-4.5, +6.5), float2(+6.5, +4.5),
+    float2(-7.5, +1.5), float2(-6.5, +1.5), float2(+5.5, -3.5), float2(-6.5, +2.5),
+    float2(-2.5, +6.5), float2(-1.5, -7.5), float2(+5.5, +4.5), float2(-1.5, -6.5),
+    float2(-3.5, -7.5), float2(+2.5, -7.5), float2(-7.5, +2.5), float2(-6.5, -2.5),
+    float2(-5.5, +5.5), float2(+2.5, +6.5), float2(-2.5, -6.5), float2(-7.5, +0.5),
+    float2(-0.5, +7.5), float2(+7.5, -2.5), float2(-2.5, +7.5), float2(+0.5, -7.5),
+    float2(-4.5, -7.5), float2(+7.5, +1.5), float2(+1.5, -6.5), float2(-6.5, +4.5),
+    float2(-1.5, +7.5), float2(-5.5, -5.5), float2(+6.5, +2.5), float2(-3.5, -6.5),
+    float2(+3.5, -7.5), float2(-5.5, +4.5), float2(+2.5, -6.5), float2(+1.5, -7.5),
+    float2(+6.5, +3.5), float2(+5.5, -6.5), float2(-6.5, +5.5), float2(+7.5, +4.5),
+    float2(+7.5, -1.5), float2(-7.5, -1.5), float2(+3.5, +7.5), float2(-5.5, +6.5),
+    float2(+1.5, +7.5), float2(+7.5, +3.5), float2(+7.5, -0.5), float2(-7.5, -2.5),
+    float2(+5.5, +5.5), float2(+6.5, +5.5), float2(+5.5, -5.5), float2(-2.5, -7.5),
+    float2(+2.5, +7.5), float2(-7.5, -3.5), float2(-7.5, -4.5), float2(-6.5, -4.5),
+    float2(+7.5, -3.5), float2(+5.5, +6.5), float2(-5.5, -6.5), float2(-4.5, -6.5),
+    float2(+7.5, +2.5), float2(-7.5, +3.5), float2(+4.5, -6.5), float2(+7.5, -4.5),
 };
 
 static const float2 kStackowiakSampleSet1[56 * 4] =
@@ -358,13 +388,13 @@ static const int2 kStackowiakSampleSet3[9] = { int2(0, 0), int2(1, -1), int2(-1,
 static const int2 kStackowiakSampleSet4[15] = { int2(0, 1), int2(-2, 1), int2(2, -3), int2(-3, 0), int2(1, 2), int2(-1, -2), int2(3, 0), int2(-3, 3), int2(0, -3), int2(-1, -1), int2(2, 1), int2(-2, -2), int2(1, 0), int2(0, 2), int2(3, -1) };
 float BRDF_SSR(float3 V, float3 L, float3 N, float Roughness)
 {
-	float3 H = normalize(L + V);
+    float3 H = normalize(L + V);
 
-	float NoH = max(dot(N, H), 0);
-	float NoL = max(dot(N, L), 0);
-	float NoV = max(dot(N, V), 0);
+    float NoH = max(dot(N, H), 0);
+    float NoL = max(dot(N, L), 0);
+    float NoV = max(dot(N, V), 0);
 
-	float D = D_GGX(NoH, Roughness);
+    float D = D_GGX(NoH, Roughness);
     float G = Vis_SmithGGX_NoPI(NoL, NoV, Roughness);
 
     return max(0, D * G);
@@ -380,30 +410,30 @@ void SpatialFilter (uint3 id : SV_DispatchThreadID)
     if(any(id.xy >= _PostResolution)) return;
     float2 UV = (id.xy + 0.5) * SVGF_SpatialSize.zw;
     uint2 PixelPosition = uint2(UV.xy * SVGF_SpatialSize.xy);
-	float SceneDepth = SRV_SceneDepth.SampleLevel(pointClampSampler, UV, 0).r;
+    float SceneDepth = SRV_SceneDepth.SampleLevel(pointClampSampler, UV, 0).r;
     if (SceneDepth <= 1e-7) {
         UAV_SpatialColor[id.xy] = 0;
         return;
     }
-	float3 WorldNormal = SRV_GBufferNormal.SampleLevel(pointClampSampler, UV, 0).xyz * 2 - 1;
+    float3 WorldNormal = SRV_GBufferNormal.SampleLevel(pointClampSampler, UV, 0).xyz * 2 - 1;
     float Roughness = clamp( 1 - SRV_GBufferRoughness.SampleLevel(pointClampSampler, UV, 0).a, 0.02, 1 );
     float3 ViewNormal = mul( (float3x3)Matrix_WorldToView, WorldNormal );
     float3 ScreenSpacePos = GetScreenSpacePos(UV, SceneDepth);
     float3 WorldSpacePos = GetWorldSpacePos(ScreenSpacePos, Matrix_InvViewProj);
     float3 ViewSpacePos = GetViewSpacePos(ScreenSpacePos, Matrix_InvProj);
 
-	float NumWeight;
-	float4 ReflecttionColor = 0;
+    float NumWeight;
+    float4 ReflecttionColor = 0;
 
-	/*uint FrameIDMod8 = uint(fmod(SVGF_FrameIndex, 64));
-	uint2 Random = Rand3DPCG16( uint3(PixelPosition, FrameIDMod8) ).xy;
+    /*uint FrameIDMod8 = uint(fmod(SVGF_FrameIndex, 64));
+    uint2 Random = Rand3DPCG16( uint3(PixelPosition, FrameIDMod8) ).xy;
     float2 Hash = Hammersley16(id.y * 16 + id.x, 1, Random);
     float2x2 OffsetRotationMatrix = float2x2(Hash.x, Hash.y, -Hash.y, -Hash.x);*/
 
     float3 MomentA, MomentB;
     uint2 Random = Rand3DPCG16(uint3(id.xy + 0.5, SVGF_FrameIndex)).xy;
-	[loop]
-	for (int i = 0; i < SVGF_NumSpatial; i++) {
+    [loop]
+    for (int i = 0; i < SVGF_NumSpatial; i++) {
         //float2 Offset_UV = UV + mul(OffsetRotationMatrix, kStackowiakSampleSet3[i] * SVGF_SpatialSize.zw * SVGF_SpatialRadius);
         float2 OffsetRotation = (Hammersley16(i, SVGF_NumSpatial, Random) * 2 - 1);
         float2x2 OffsetRotationMatrix = float2x2(OffsetRotation.x, OffsetRotation.y, -OffsetRotation.y, OffsetRotation.x);
@@ -411,24 +441,24 @@ void SpatialFilter (uint3 id : SV_DispatchThreadID)
         float2 Offset_UV = kStackowiakSampleSet4[i] * SVGF_SpatialSize.zw;
         Offset_UV = UV + mul(OffsetRotationMatrix, Offset_UV * SVGF_SpatialRadius);
 
-		float4 HitUWVPDF = SRV_UWVPDF.SampleLevel(bilinearClampSampler, Offset_UV, 0);
-		float4 HitColorMask = SRV_ColorMask.SampleLevel(bilinearClampSampler, Offset_UV, 0);
-		float3 Hit_ViewSpacePos = GetViewSpacePos( GetScreenSpacePos(HitUWVPDF.xy, HitUWVPDF.z), Matrix_InvProj );
+        float4 HitUWVPDF = SRV_UWVPDF.SampleLevel(bilinearClampSampler, Offset_UV, 0);
+        float4 HitColorMask = SRV_ColorMask.SampleLevel(bilinearClampSampler, Offset_UV, 0);
+        float3 Hit_ViewSpacePos = GetViewSpacePos( GetScreenSpacePos(HitUWVPDF.xy, HitUWVPDF.z), Matrix_InvProj );
 
-		///Variance Accmulation
+        ///Variance Accmulation
         MomentA += HitColorMask.rgb;
         MomentB += HitColorMask.rgb * HitColorMask.rgb;
 
-		//////Weight
+        //////Weight
         float BRDFWeight = BRDF_SSR(normalize(-ViewSpacePos), normalize(Hit_ViewSpacePos - ViewSpacePos), ViewNormal, Roughness) * HitUWVPDF.a;
-		NumWeight += BRDFWeight;
+        NumWeight += BRDFWeight;
 
-		///SpatioSampler
+        ///SpatioSampler
         ReflecttionColor += float4(HitColorMask.rgb * BRDFWeight, HitColorMask.a);
-	}
+    }
     ReflecttionColor.a /= SVGF_NumSpatial;
-	ReflecttionColor.rgb /= NumWeight;
-	ReflecttionColor.rgb = max(1e-5, ReflecttionColor);
+    ReflecttionColor.rgb /= NumWeight;
+    ReflecttionColor.rgb = max(1e-5, ReflecttionColor);
 
     MomentA /= SVGF_NumSpatial;
     MomentB /= SVGF_NumSpatial;
@@ -453,7 +483,7 @@ float4 ClipAABB(float4 prevSample, float4 aabbMin, float4 aabbMax)
     [branch]
     if (ma_unit > 1) {
         return p_clip + v_clip / ma_unit;
-    } else {
+        } else {
         return prevSample;
     }
 }
@@ -486,8 +516,8 @@ void TemporalSuperSampling(Texture2D PrevColorRT, Texture2D CurrColorRT, float A
     float2 RayPrevUV = ScreenUV - RayMotion;
 
     if ( any(PrevUV < 0) || any(PrevUV > 1) || any(RayPrevUV < 0) || any(RayPrevUV > 1) ) { 
-		PrevColor = CurrColor;
-	} else {
+        PrevColor = CurrColor;
+        } else {
         float4 RayProject_PrevColor = PrevColorRT.SampleLevel(bilinearClampSampler, RayPrevUV, 0);
         float4 RayProject_Dist = ( RayProject_PrevColor - Mean ) / Stddev;
         float RayProject_Weight = exp2( -10 * Luminance(RayProject_Dist) );
@@ -498,7 +528,7 @@ void TemporalSuperSampling(Texture2D PrevColorRT, Texture2D CurrColorRT, float A
 
         PrevColor = (RayProject_PrevColor * RayProject_Weight + DepthProject_PrevColor * DepthProject_Weight) / (RayProject_Weight + DepthProject_Weight);
         PrevColor = clamp(PrevColor, MinColor, MaxColor);
-	}
+    }
 }
 
 ///Temporal Pass
@@ -517,9 +547,9 @@ void TemporalFilter (uint3 id : SV_DispatchThreadID)
 
     float4 CurrColor, PrevColor;
     TemporalSuperSampling(SRV_PrevColor, SRV_CurrColor, SVGF_TemporalScale, SVGF_TemporalSize.zw, UV, DepthMotion, RayMotion, CurrColor, PrevColor);
-	float BlendWeight = saturate( SVGF_TemporalWeight * (1 - length(RayMotion) * 8) * (1 - length(DepthMotion) * 8) );
+    float BlendWeight = saturate( SVGF_TemporalWeight * (1 - length(RayMotion) * 8) * (1 - length(DepthMotion) * 8) );
 
-	UAV_TemporalColor[id.xy] = max(0.001, lerp(CurrColor, PrevColor, BlendWeight));
+    UAV_TemporalColor[id.xy] = max(0.001, lerp(CurrColor, PrevColor, BlendWeight));
 }
 
 
@@ -534,32 +564,32 @@ static const int2 BilateralOffset[25] = { int2(-2, -2), int2(-1, -2), int2(0, -2
 void BilateralFilter (uint3 id : SV_DispatchThreadID)
 {
     if(id.x >= _PostResolution.x || id.y >= _PostResolution.y) return;
-	float WeightSum = 0;
-	float4 ColorSum = 0;
+    float WeightSum = 0;
+    float4 ColorSum = 0;
 
     float2 UV = (id.xy + 0.5) * SVGF_BilateralSize.zw;
-	float4 Color = SRV_InputColor.SampleLevel(bilinearClampSampler, UV, 0);
-	float4 Normal = SRV_GBufferNormal.SampleLevel(bilinearClampSampler, UV, 0);
-	float Depth = LinearEyeDepth(SRV_SceneDepth.SampleLevel(bilinearClampSampler, UV, 0).r);
+    float4 Color = SRV_InputColor.SampleLevel(bilinearClampSampler, UV, 0);
+    float4 Normal = SRV_GBufferNormal.SampleLevel(bilinearClampSampler, UV, 0);
+    float Depth = LinearEyeDepth(SRV_SceneDepth.SampleLevel(bilinearClampSampler, UV, 0).r);
 
-	for(int i = 0; i < 25; i++) {
-		float2 OffsetUV = UV + (BilateralOffset[i] * SVGF_BilateralSize * SVGF_BilateralRadius);
+    for(int i = 0; i < 25; i++) {
+        float2 OffsetUV = UV + (BilateralOffset[i] * SVGF_BilateralSize * SVGF_BilateralRadius);
 
-		float4 OffsetColor = SRV_InputColor.SampleLevel(bilinearClampSampler, OffsetUV, 0);
+        float4 OffsetColor = SRV_InputColor.SampleLevel(bilinearClampSampler, OffsetUV, 0);
         float4 OffsetNormal = SRV_GBufferNormal.SampleLevel(bilinearClampSampler, OffsetUV, 0);
         float OffsetDepth = LinearEyeDepth(SRV_SceneDepth.SampleLevel(bilinearClampSampler, OffsetUV, 0).r);
 
-		float4 Distance = Normal - OffsetNormal;
-		float Distance2 = max( dot(Distance, Distance) / (SVGF_BilateralRadius * SVGF_BilateralRadius), 0);
-		float WeightNormal = min( exp(-Distance2 / SVGF_NormalWeight), 1 );
-	    float WeightDepth = (SVGF_DepthWeight == 0) ? 0 : abs(Depth - OffsetDepth) / SVGF_DepthWeight;
-	    float WeightColor = abs( Luminance(Color.rgb) - Luminance(OffsetColor.rgb) ) / SVGF_ColorWeight;
+        float4 Distance = Normal - OffsetNormal;
+        float Distance2 = max( dot(Distance, Distance) / (SVGF_BilateralRadius * SVGF_BilateralRadius), 0);
+        float WeightNormal = min( exp(-Distance2 / SVGF_NormalWeight), 1 );
+        float WeightDepth = (SVGF_DepthWeight == 0) ? 0 : abs(Depth - OffsetDepth) / SVGF_DepthWeight;
+        float WeightColor = abs( Luminance(Color.rgb) - Luminance(OffsetColor.rgb) ) / SVGF_ColorWeight;
         float Weight = exp(0 - max(WeightColor, 0) - max(WeightDepth, 0)) * WeightNormal;
 
-		ColorSum += OffsetColor * Weight * Bilateralkernel[i];
-		WeightSum += Weight * Bilateralkernel[i];
-	}
-	UAV_BilateralColor[id.xy] = ColorSum / WeightSum;
+        ColorSum += OffsetColor * Weight * Bilateralkernel[i];
+        WeightSum += Weight * Bilateralkernel[i];
+    }
+    UAV_BilateralColor[id.xy] = ColorSum / WeightSum;
 }
 
 
@@ -568,11 +598,11 @@ void BilateralFilter (uint3 id : SV_DispatchThreadID)
 
 
 
-		/*float4 Distance = Color - OffsetColor;
-		float Distance2 = dot(Distance, Distance);
-		float WeightColor = min( exp(-Distance2 / ColorWeight), 1 );
-		Distance = Normal - OffsetNormal;
-		Distance2 = max( dot(Distance, Distance) / (FilterRadius * FilterRadius), 0);
-		float WeightNormal = min( exp(-Distance2 / NormalWeight), 1 );
-		float WeightDepth = min( exp( -pow2(OffsetDepth - Depth) / DepthWeight ), 1 );
-		float Weight = WeightColor * WeightNormal * WeightDepth;*/
+/*float4 Distance = Color - OffsetColor;
+float Distance2 = dot(Distance, Distance);
+float WeightColor = min( exp(-Distance2 / ColorWeight), 1 );
+Distance = Normal - OffsetNormal;
+Distance2 = max( dot(Distance, Distance) / (FilterRadius * FilterRadius), 0);
+float WeightNormal = min( exp(-Distance2 / NormalWeight), 1 );
+float WeightDepth = min( exp( -pow2(OffsetDepth - Depth) / DepthWeight ), 1 );
+float Weight = WeightColor * WeightNormal * WeightDepth;*/

@@ -30,6 +30,8 @@ private:
 	void InitGlobalHeap(ID3D12Device* device);
 	void DisposeGlobalHeap() const;
 public:
+	StructuredBuffer(StructuredBuffer const&) = delete;
+	StructuredBuffer(StructuredBuffer&&) = delete;
 	StructuredBuffer(
 		ID3D12Device* device,
 		StructuredBufferElement* elementsArray,

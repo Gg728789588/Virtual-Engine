@@ -11,6 +11,7 @@
 #include "../Common/Camera.h"
 #include "../Utility/PassConstants.h"
 #include "../Common/RenderPackage.h"
+#include "../CubeRender/CubeDrawer.h"
 
 using namespace DirectX;
 namespace DepthGlobal
@@ -22,6 +23,22 @@ namespace DepthGlobal
 	uint _DepthTexture;
 }
 using namespace DepthGlobal;
+
+struct DepthFrameData : public IPipelineResource
+{
+	ConstBufferElement cullDataEle;
+	DepthFrameData(ID3D12Device* device)
+	{
+		cullDataEle = World::GetInstance()->GetCubeDrawer()->GetCullConstBuffer(device);
+	}
+	~DepthFrameData()
+	{
+		if (World::GetInstance())
+		{
+			World::GetInstance()->GetCubeDrawer()->ReturnCullConstBuffer(cullDataEle);
+		}
+	}
+};
 
 void DepthComponent::Initialize(ID3D12Device* device, ID3D12GraphicsCommandList* commandList)
 {
@@ -78,7 +95,10 @@ public:
 		ThreadCommandFollower follower(tcmd);
 		TransitionBarrierBuffer* barrierBuffer = tcmd->GetBarrierBuffer();
 		ID3D12GraphicsCommandList* commandList = tcmd->GetCmdList();
-		
+		DepthFrameData* frameData =(DepthFrameData*) resource->GetPerCameraResource(component, cam, [&]()->DepthFrameData*
+			{
+				return new DepthFrameData(device);
+			});
 		depthRT->ClearRenderTarget(commandList, 0, 0);
 		RenderPackage package(
 			device,
@@ -86,10 +106,24 @@ public:
 			resource,
 			barrierBuffer,
 			component->depthPrepassContainer);
-	
+
 		//Draw Depth prepass
 		component->depthPrepassContainer->SetRenderTarget(commandList, {}, depthRT);
+		auto setGBufferShaderFunc = [&](Shader const* gbufferShader)->void
+		{
+			DescriptorHeap* worldHeap = Graphics::GetGlobalDescHeap();
+			gbufferShader->BindRootSignature(commandList, worldHeap);
+			auto cb = resource->cameraCBs[cam->GetInstanceID()];
+			gbufferShader->SetResource(commandList, ShaderID::GetPerCameraBufferID(),
+				cb.buffer, cb.element);
+		};
 
+		//Draw Cube Teset
+		CubeDrawer* cubeDrawer = world->GetCubeDrawer();
+		//cubeDrawer->ExecuteCopyCommand()
+		cubeDrawer->ExecuteCull(package, frameData->cullDataEle, cam, DepthGlobal::prepareComp_Depth->frustumPlanes, DepthGlobal::prepareComp_Depth->frustumMinPos, DepthGlobal::prepareComp_Depth->frustumMaxPos);
+		setGBufferShaderFunc(cubeDrawer->GetShader());
+		cubeDrawer->DrawDepthPrepass(package);
 	}
 };
 

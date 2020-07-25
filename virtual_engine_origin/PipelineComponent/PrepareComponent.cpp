@@ -4,6 +4,8 @@
 #include "CameraData/CameraTransformData.h"
 #include "../Singleton/MathLib.h"
 #include "../Utility/Random.h"
+#include "../CubeRender/CubeDrawer.h"
+#include "../LogicComponent/World.h"
 using namespace Math;
 namespace PrepareComp
 {
@@ -90,7 +92,7 @@ void ConfigureJitteredProjectionMatrix(Camera* camera, UINT height, UINT width, 
 	flipP[1].m128_f32[1] *= -1;
 	data->nonJitteredProjMatrix = p;
 	data->nonJitteredFlipProj = flipP;
-	
+
 	data->lastFrameJitter = data->jitter;
 	XMVECTOR jitterVec = XMLoadFloat2(&data->jitter);
 	GetJitteredProjectionMatrix(
@@ -128,6 +130,8 @@ void ConfigureJitteredProjectionMatrix(Camera* camera, UINT height, UINT width, 
 }
 struct PrepareRunnable
 {
+	ID3D12Device* device;
+	ThreadCommand* tcmd;
 	PrepareComponent* ths;
 	FrameResource* resource;
 	Camera* camera;
@@ -136,6 +140,16 @@ struct PrepareRunnable
 	bool isMovingTheWorld;
 	void operator()()
 	{
+		ThreadCommandFollower follower(tcmd);
+		RenderPackage package(
+			device,
+			tcmd->GetCmdList(),
+			resource,
+			tcmd->GetBarrierBuffer(),
+			nullptr);
+		World::GetInstance()->GetCubeDrawer()->ExecuteCopyCommand(
+			package, camera
+		);
 		CameraTransformData* transData = (CameraTransformData*)camera->GetResource(ths, []()->CameraTransformData*
 			{
 				return new CameraTransformData;
@@ -173,7 +187,7 @@ struct PrepareRunnable
 			(float)randomComp.GetRangedFloat(1e-4, 9.99999),
 			(float)randomComp.GetRangedFloat(1e-4, 9.99999)
 		};
-		
+
 		ths->passConstants._ZBufferParams = ths->_ZBufferParams;
 		ConstBufferElement ele = resource->cameraCBs[camera->GetInstanceID()];
 		ele.buffer->CopyData(ele.element, &ths->passConstants);
@@ -201,6 +215,8 @@ void PrepareComponent::RenderEvent(const EventData& data, ThreadCommand* command
 {
 	PrepareRunnable runnable =
 	{
+		data.device,
+		commandList,
 		this,
 		data.resource,
 		data.camera,

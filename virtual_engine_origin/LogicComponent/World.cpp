@@ -20,6 +20,7 @@
 #include "../LogicComponent/DirectionalLight.h"
 #include "../RenderComponent/Skybox.h"
 #include "../Singleton/MathLib.h"
+#include "../CubeRender/CubeDrawer.h"
 using namespace Math;
 using namespace neb;
 World* World::current = nullptr;
@@ -60,7 +61,7 @@ World::World(ID3D12GraphicsCommandList* commandList, ID3D12Device* device) :
 	testLight->SetShadowEnabled(true, device);
 	WorldTester::sunTrans = Transform::GetTransform();
 	WorldTester::sunTrans->SetRotation({ -0.0004715632f,0.9983955f,0.008083393f,0.05604406f });
-
+	cubeDrawer = ObjectPtr<CubeDrawer>::NewObject(device);
 	uint4 shadowRes = { 2048,2048,2048,2048 };
 	WorldTester::sun = DirectionalLight::GetInstance(WorldTester::sunTrans, (uint*)&shadowRes, device);
 	WorldTester::sun->intensity = 2;

@@ -29,5 +29,6 @@ private:
 public:
 	CommandSignature(ID3D12Device* device, SignatureType sigType, Shader const* drawShader = nullptr);
 	ID3D12CommandSignature* GetSignature() const { return mCommandSignature.Get(); }
-
+	CommandSignature(CommandSignature const&) = delete;
+	CommandSignature(CommandSignature&&) = delete;
 };
