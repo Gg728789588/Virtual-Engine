@@ -1,8 +1,12 @@
 cbuffer CullBuffer : register(b0)
+cbuffer MoveTheWorld : register(b1)
 
 StructuredBuffer<ObjectData> _InputDataBuffer : register(t0);
+StructuredBuffer<uint2> _RemoveBuffer : register(t1);
 RWStructuredBuffer<MultiDrawCommand> _OutputBuffer : register(u0);
 RWStructuredBuffer<ObjectData> _OutputDataBuffer : register(u1);
 
 #pragma CSMain
 #pragma Clear
+#pragma ExecuteRemoveCommand
+#pragma MoveTheWorld

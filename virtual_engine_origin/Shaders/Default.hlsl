@@ -9,7 +9,7 @@ Texture3D<uint> _IntegerTex3D[] : register(t0, space6);
 
 struct PerObjectBuffer
 {
-	float4x4 _LocalToWorld;
+	float3 worldPos;
 };
 cbuffer Per_Camera_Buffer : register(b1)
 {
@@ -142,19 +142,19 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_INSTANCEID)
 	VertexOut vout = (VertexOut)0.0f;
 	PerObjectBuffer objBuffer = _PerObjectData[instanceID];
 	// Transform to world space.
-	float4 posW = mul(objBuffer._LocalToWorld, float4(vin.PosL, 1.0f));
+	float4 posW = float4(objBuffer.worldPos + vin.PosL, 1);
 	vout.PosW = posW.xyz;
 
 	// Assumes nonuniform scaling; otherwise, need to use inverse-transpose of world matrix.
-	vout.NormalW = mul((float3x3)objBuffer._LocalToWorld, vin.NormalL);
+	vout.NormalW =  vin.NormalL;
 
 	// Transform to homogeneous clip space.
 	vout.PosH = mul(_VP, posW);
 	vout.currentProjPos = mul(_FlipNonJitterVP, posW);
-	vout.lastProjPos = mul(_FlipLastVP, mul(objBuffer._LocalToWorld, float4(vin.PosL, 1.0f)));
+	vout.lastProjPos = mul(_FlipLastVP, posW);
 	vout.uv.xy = float4(vin.uv.xy, vin.uv2.xy);
 
-	vout.tangent.xyz = mul((float3x3)objBuffer._LocalToWorld, vin.tangent.xyz);
+	vout.tangent.xyz = vin.tangent.xyz;
 	vout.tangent.w = vin.tangent.w;
 	return vout;
 }
@@ -219,14 +219,14 @@ out float4 emissionRT : SV_TARGET4)
 float4 VS_Depth(float3 position : POSITION, uint instanceID : SV_INSTANCEID) : SV_POSITION
 {
 	PerObjectBuffer objBuffer = _PerObjectData[instanceID];
-	float4 posW = mul(objBuffer. _LocalToWorld, float4(position, 1));
+	float4 posW = float4(objBuffer.worldPos + position, 1);
 	return mul(_VP, posW);
 }
 
 float4 VS_Shadowmap(float3 position : POSITION, uint instanceID : SV_INSTANCEID) : SV_POSITION
 {
 	PerObjectBuffer objBuffer = _PerObjectData[instanceID];
-	float4 posW = mul(objBuffer._LocalToWorld, float4(position, 1));
+	float4 posW = float4(objBuffer.worldPos + position, 1);
 	return mul(_ShadowmapVP, posW);
 }
 struct v2f_pointLight
@@ -239,7 +239,7 @@ v2f_pointLight VS_PointLightShdowmap(float3 position : POSITION, uint instanceID
 {
 	PerObjectBuffer objBuffer = _PerObjectData[instanceID];
 	v2f_pointLight o;
-	float4 posW = mul(objBuffer._LocalToWorld, float4(position, 1));
+	float4 posW = float4(objBuffer.worldPos + position, 1);
 	o.position = mul(_ShadowmapVP, posW);
 	o.worldPos = posW.xyz;
 	return o;

@@ -6,7 +6,7 @@
 #include "../PipelineComponent/IPipelineResource.h"
 #include "../Singleton/FrameResource.h"
 #include "../Common/Camera.h"
-
+using namespace Math;
 struct CullDispatchParams
 {
 	float4 frustumPlanes[6];
@@ -14,10 +14,16 @@ struct CullDispatchParams
 	float4 frustumMaxPoint;
 	uint _Count;
 };
+struct CubeMoveTheWorldParams
+{
+	float3 _MoveDir;
+	uint _MoveCount;
+};
 struct CubeDrawerPerCameraData : public IPipelineResource
 {
 	ArrayList<ConstBufferElement> copyCommands;
 	CBufferPool* pool;
+	ObjectPtr<UploadBuffer> removeCmd;
 	CubeDrawerPerCameraData(CBufferPool* pool, ID3D12Device* device) :
 		pool(pool)
 	{
@@ -43,19 +49,20 @@ namespace CubeDrawerGlobal
 	uint CullBuffer;
 	uint _OutputBuffer;
 	uint _OutputDataBuffer;
+	uint _RemoveBuffer;
+	uint MoveTheWorld;
 }
 
 CubeDrawer::CubeDrawer(ID3D12Device* device) :
 	computeCullBufferPool(
 		Max(sizeof(CubeObjectBuffer),
 			Max(sizeof(InstanceIndirectCommand),
-				sizeof(CullDispatchParams))), 256, true)
+				Max(sizeof(CubeMoveTheWorldParams), sizeof(CullDispatchParams)))), 256, true)
 {
 	drawShader = ShaderCompiler::GetShader("OpaqueStandard");
 	cullShader = ShaderCompiler::GetComputeShader("Cull");
 	cmdSignature.New(device, CommandSignature::SignatureType::DrawInstanceIndirect, drawShader);
 	this->device = device;
-	objectDatas.reserve(CubeDrawerGlobal::MAXIMUM_CUBE_COUNT);
 	Mesh::LoadMeshFromFile(
 		cubeMesh, "Resource/Internal/Cube.vmesh",
 		device,
@@ -87,19 +94,22 @@ CubeDrawer::CubeDrawer(ID3D12Device* device) :
 	},
 		D3D12_RESOURCE_STATE_GENERIC_READ
 			);
-	CubeObjectBuffer objBuffer;
-	objBuffer._LocalToWorld = MathHelper::Identity4x4();
 	CubeDrawerGlobal::_PerObjectData = ShaderID::PropertyToID("_PerObjectData");
 	CubeDrawerGlobal::_InputDataBuffer = ShaderID::PropertyToID("_InputDataBuffer");
 	CubeDrawerGlobal::CullBuffer = ShaderID::PropertyToID("CullBuffer");
 	CubeDrawerGlobal::_OutputBuffer = ShaderID::PropertyToID("_OutputBuffer");
 	CubeDrawerGlobal::_OutputDataBuffer = ShaderID::PropertyToID("_OutputDataBuffer");
+	CubeDrawerGlobal::_RemoveBuffer = ShaderID::PropertyToID("_RemoveBuffer");
+	CubeDrawerGlobal::MoveTheWorld = ShaderID::PropertyToID("MoveTheWorld");
 	//TODO
 	//Test
-	float4x4 pos = MathHelper::Identity4x4();
-	pos._42 = 2;
+	float3 pos = { 0,0,0 };
 	AddObject(pos);
-
+	pos.y = 2;
+	AddObject(pos);
+	pos.y = 4;
+	AddObject(pos);
+	//RemoveObject(0);
 }
 
 ConstBufferElement CubeDrawer::GetCullConstBuffer(ID3D12Device* device)
@@ -139,25 +149,27 @@ void CubeDrawer::ReturnCullConstBuffers(std::initializer_list<ConstBufferElement
 		computeCullBufferPool.Return(**ite);
 	}
 }
-uint CubeDrawer::AddObject(float4x4 const& objectPositionMatrix)
+uint CubeDrawer::AddObject(float3 const& objPos)
 {
 	ConstBufferElement ele = computeCullBufferPool.Get(device);
 	CubeObjectBuffer eleMappedPtr;
-	eleMappedPtr._LocalToWorld = objectPositionMatrix;
+	eleMappedPtr.worldPos = objPos;
 	memcpy(ele.buffer->GetMappedDataPtr(ele.element), &eleMappedPtr, sizeof(CubeObjectBuffer));
 	CubeDrawerCopyCommand copyCmd;
 	copyCmd.sourceCBufferElement = ele;
 	copyCmd.byteSize = sizeof(CubeObjectBuffer);
-	copyCmd.destOffset = objectDataBuffer->GetAddressOffset(0, objectDatas.size());
+	copyCmd.destOffset = objectDataBuffer->GetAddressOffset(0, objectCount);
 	copyCommands.push_back(copyCmd);
-	uint lastCount = objectDatas.size();
-	objectDatas.push_back(eleMappedPtr);
+	uint lastCount = objectCount++;
 
 	return lastCount;
 }
 void CubeDrawer::RemoveObject(uint target)
 {
-	auto last = objectDatas.end() - 1;
+	objectCount--;
+	unProcessedRemoveCmd.push_back({ target });
+
+	/*auto last = objectDatas.end() - 1;
 	ConstBufferElement ele = computeCullBufferPool.Get(device);
 	CubeObjectBuffer& lastData = *last;
 	memcpy(ele.buffer->GetMappedDataPtr(ele.element), &lastData, sizeof(CubeObjectBuffer));
@@ -167,7 +179,10 @@ void CubeDrawer::RemoveObject(uint target)
 	copyCmd.sourceCBufferElement = ele;
 	copyCmd.byteSize = sizeof(CubeObjectBuffer);
 	copyCmd.destOffset = objectDataBuffer->GetAddressOffset(0, target);
-	copyCommands.push_back(copyCmd);
+	copyCommands.push_back(copyCmd);*/
+
+	//TODO
+	//Remove Command
 }
 
 void CubeDrawer::ExecuteCopyCommand(RenderPackage const& renderPackage, Camera* cam)
@@ -192,6 +207,68 @@ void CubeDrawer::ExecuteCopyCommand(RenderPackage const& renderPackage, Camera* 
 		);
 	}
 	copyCommands.clear();
+	if (!unProcessedRemoveCmd.empty())
+	{
+		uint lastElement = objectCount + unProcessedRemoveCmd.size() - 1;
+		for (auto ite = unProcessedRemoveCmd.begin(); ite != unProcessedRemoveCmd.end(); ++ite)
+		{
+			uint value = *ite;
+			if (value < objectCount)
+			{
+				removeCmdArray.push_back({ value, lastElement });
+			}
+			lastElement--;
+		}
+		unProcessedRemoveCmd.clear();
+	}
+	if (!removeCmdArray.empty())
+	{
+		renderPackage.transitionBarrier->UpdateState(D3D12_RESOURCE_STATE_UNORDERED_ACCESS, objectDataBuffer->GetResource());
+		renderPackage.transitionBarrier->ExecuteCommand(commandList);
+		if (!frameData->removeCmd)
+		{
+			frameData->removeCmd = ObjectPtr<UploadBuffer>::NewObject(device, Max<uint>(256, removeCmdArray.size()), false, sizeof(uint2));
+		}
+		{
+			uint currentSize = frameData->removeCmd->GetElementCount();
+			while (currentSize < removeCmdArray.size())
+			{
+				currentSize *= 2;
+			}
+			frameData->removeCmd = ObjectPtr<UploadBuffer>::NewObject(device, currentSize, false, sizeof(uint2));
+			memcpy(frameData->removeCmd->GetMappedDataPtr(0), removeCmdArray.data(), removeCmdArray.size() * sizeof(uint2));
+		}
+		ConstBufferElement paramEle = computeCullBufferPool.Get(device);
+		frameData->copyCommands.push_back(paramEle);
+		CullDispatchParams* data = (CullDispatchParams*)paramEle.buffer->GetMappedDataPtr(paramEle.element);
+		data->_Count = removeCmdArray.size();
+		//TODO
+		//Dispatch
+		cullShader->BindRootSignature(commandList);
+		cullShader->SetResource(commandList, CubeDrawerGlobal::CullBuffer, paramEle.buffer, paramEle.element);
+		cullShader->SetResource<StructuredBuffer>(commandList, CubeDrawerGlobal::_OutputDataBuffer, objectDataBuffer, 0);
+		cullShader->SetResource<UploadBuffer>(commandList, CubeDrawerGlobal::_RemoveBuffer, frameData->removeCmd, 0);
+		cullShader->Dispatch(commandList, 2, (removeCmdArray.size() + 63) / 64, 1, 1);
+		removeCmdArray.clear();
+	}
+	if (needMove)
+	{
+		needMove = false;
+		renderPackage.transitionBarrier->UAVBarrier(objectDataBuffer->GetResource());
+		renderPackage.transitionBarrier->UpdateState(D3D12_RESOURCE_STATE_UNORDERED_ACCESS, objectDataBuffer->GetResource());
+		renderPackage.transitionBarrier->ExecuteCommand(commandList);
+		CubeMoveTheWorldParams params;
+		params._MoveCount = objectCount;
+		params._MoveDir = moveDir;
+		ConstBufferElement paramEle = computeCullBufferPool.Get(device);
+		frameData->copyCommands.push_back(paramEle);
+		memcpy(paramEle.buffer->GetMappedDataPtr(paramEle.element), &params, sizeof(CubeMoveTheWorldParams));
+		cullShader->BindRootSignature(commandList);
+		cullShader->SetResource(commandList, CubeDrawerGlobal::MoveTheWorld, paramEle.buffer, paramEle.element);
+		cullShader->SetResource<StructuredBuffer>(commandList, CubeDrawerGlobal::_OutputDataBuffer, objectDataBuffer, 0);
+		cullShader->Dispatch(commandList, 3, (63 + objectCount) / 64, 1, 1);
+		moveDir = Vector3(0);
+	}
 	renderPackage.transitionBarrier->UpdateState(objectDataBuffer->GetInitState(), objectDataBuffer->GetResource());
 }
 
@@ -211,7 +288,7 @@ void CubeDrawer::ExecuteCull(
 	cullData.frustumMaxPoint = frustumMaxPos;
 	cullData.frustumMinPoint = frustumMinPos;
 	memcpy(cullData.frustumPlanes, frustumPlanes, sizeof(float4) * 6);
-	cullData._Count = objectDatas.size();
+	cullData._Count = objectCount;
 	memcpy(
 		ele.buffer->GetMappedDataPtr(ele.element),
 		&cullData,
@@ -245,11 +322,11 @@ void CubeDrawer::ExecuteCull(
 	renderPackage.transitionBarrier->UpdateState(D3D12_RESOURCE_STATE_UNORDERED_ACCESS, outputPosBuffer->GetResource());
 	renderPackage.transitionBarrier->ExecuteCommand(commandList);
 	cullShader->Dispatch(commandList, 1, 1, 1, 1);
-	if (!objectDatas.empty())
+	if (objectCount > 0)
 	{
 		renderPackage.transitionBarrier->UAVBarrier(indirectDrawBuffer->GetResource());
 		renderPackage.transitionBarrier->ExecuteCommand(commandList);
-		cullShader->Dispatch(commandList, 0, (63 + objectDatas.size()) / 64, 1, 1);
+		cullShader->Dispatch(commandList, 0, (63 + objectCount) / 64, 1, 1);
 	}
 	renderPackage.transitionBarrier->UpdateState(indirectDrawBuffer->GetInitState(), indirectDrawBuffer->GetResource());
 	renderPackage.transitionBarrier->UpdateState(outputPosBuffer->GetInitState(), outputPosBuffer->GetResource());
@@ -285,3 +362,8 @@ void CubeDrawer::DrawPass(RenderPackage const& renderPackage, uint targetPass)
 		nullptr, 0);
 }
 
+void CubeDrawer::MoveTheWorld(float3 moveDir)
+{
+	this->moveDir += Vector3(moveDir);
+	needMove = true;
+}

@@ -21,9 +21,10 @@ public:
 		uint64_t destOffset;
 		uint64_t byteSize;
 	};
+	
 	struct CubeObjectBuffer
 	{
-		float4x4 _LocalToWorld;
+		float3 worldPos;
 	};
 
 private:
@@ -34,16 +35,18 @@ private:
 	ObjectPtr<StructuredBuffer> objectDataBuffer;	//0: Object Position 1: Indirect Draw Command
 	ObjectPtr<StructuredBuffer> indirectDrawBuffer;
 	ObjectPtr<StructuredBuffer> outputPosBuffer;
-
-	ArrayList< CubeObjectBuffer> objectDatas;
+	uint objectCount = 0;
 	ArrayList<CubeDrawerCopyCommand> copyCommands;
-
+	ArrayList<uint> unProcessedRemoveCmd;
+	ArrayList<uint2> removeCmdArray;
 	Shader const* drawShader;
 	ComputeShader const* cullShader;
 
 	std::mutex loadingMtx;
 	void DrawPass(RenderPackage const& renderPackage, uint targetPass);
 	ID3D12Device* device;
+	Math::Vector3 moveDir = { 0,0,0 };
+	bool needMove = false;
 public:
 	Shader const* GetShader() const noexcept
 	{
@@ -58,11 +61,12 @@ public:
 	void ReturnCullConstBuffer(ConstBufferElement const& cbuffer);
 	void ReturnCullConstBuffers(std::initializer_list<ConstBufferElement*> cbuffers);
 	//Logic
-	uint AddObject(float4x4 const& objectPositionMatrix);
+	uint AddObject(float3 const& objectPositionMatrix);
 	void RemoveObject(uint target);
 	//Render Pipeline
 	void ExecuteCull(RenderPackage const& renderPackage, ConstBufferElement const& ele, Camera* cam, Math::Vector4* frustumPlanes, Math::Vector3 const& frustumMinPos, Math::Vector3 const& frustumMaxPos);
 	void ExecuteCopyCommand(RenderPackage const& renderPackage, Camera* cam);
+	void MoveTheWorld(float3 moveDir);
 	void DrawDepthPrepass(RenderPackage const& renderPackage)
 	{
 		DrawPass(renderPackage, 1);

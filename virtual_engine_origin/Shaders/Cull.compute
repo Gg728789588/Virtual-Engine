@@ -7,6 +7,11 @@ cbuffer CullBuffer : register(b0)
     float4 _FrustumMaxPoint;
     uint _Count;
 };
+cbuffer MoveTheWorld : register(b1)
+{
+    float3 _MoveDir;
+    uint _MoveCount;
+}
 struct MultiDrawCommand
 {
     uint IndexCountPerInstance;
@@ -17,19 +22,18 @@ struct MultiDrawCommand
 };
 struct ObjectData
 {
-    float4x4 localToWorld;			//64
-    uint _align[48];    //(256 - 64) / 4
+    float3 worldPos;			
 };
 StructuredBuffer<ObjectData> _InputDataBuffer : register(t0);
+StructuredBuffer<uint2> _RemoveBuffer : register(t1);
 RWStructuredBuffer<MultiDrawCommand> _OutputBuffer : register(u0);
 RWStructuredBuffer<ObjectData> _OutputDataBuffer : register(u1);
 
 
-
-float PlaneTest(float4x4 localToWorld){
+float PlaneTest(float3 worldPos){
     const float3 localPosition = 0;
     const float3 extent = 0.5;
-    float3 position = mul(localToWorld, float4(localPosition, 1)).xyz;
+    float3 position = worldPos + localPosition;
     float3 worldMin = position;
     float3 worldMax = position;
     uint i;
@@ -48,7 +52,7 @@ float PlaneTest(float4x4 localToWorld){
     [loop]
     for(i = 0; i < 8; ++i)
     {
-        float3 currPos = mul(localToWorld, float4(localPosition + extent * offsetRate[i], 1)).xyz;
+        float3 currPos = worldPos + (localPosition + extent * offsetRate[i]);
         worldMin = min(worldMin, currPos);
         worldMax = max(worldMax, currPos);
     }
@@ -58,7 +62,7 @@ float PlaneTest(float4x4 localToWorld){
     for(i = 0; i < 6; ++i)
     {
         float4 plane = planes[i];
-        float3 absNormal = abs(mul(plane.xyz, (float3x3)localToWorld));
+        float3 absNormal = abs(plane.xyz);
         if((dot(position, plane.xyz) - dot(absNormal, extent)) > -plane.w)
         {
             return 0;
@@ -73,7 +77,7 @@ void CSMain(uint id : SV_DISPATCHTHREADID)
     if(id >= _Count) return;
     uint count;
     ObjectData data = _InputDataBuffer[id];
-    if(PlaneTest(data.localToWorld) > 0.5)
+    if(PlaneTest(data.worldPos) > 0.5)
     {
         InterlockedAdd(_OutputBuffer[0].InstanceCount, 1, count);
         _OutputDataBuffer[count] = data;
@@ -86,4 +90,19 @@ void Clear()
     MultiDrawCommand clearedValue = (MultiDrawCommand)0;
     clearedValue.IndexCountPerInstance = 36;    //Cube Should have 36 vertex
     _OutputBuffer[0] = clearedValue;
+}
+
+[numthreads(64, 1, 1)]
+void ExecuteRemoveCommand(uint id : SV_DISPATCHTHREADID)
+{
+    if(id >= _Count) return;
+    uint2 moveCmd = _RemoveBuffer[id];
+    _OutputDataBuffer[moveCmd.x] = _OutputDataBuffer[moveCmd.y];
+}
+
+[numthreads(64, 1, 1)]
+void MoveTheWorld(uint id : SV_DISPATCHTHREADID)
+{
+    if(id >= _MoveCount) return;
+    _OutputDataBuffer[id].worldPos += _MoveDir;
 }
